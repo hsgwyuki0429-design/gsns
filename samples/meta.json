@@ -1,5 +1,11 @@
 [
   { "file": "bubble-pop.html", "title": "Bubble Pop 30s", "author": "GSNS" },
   { "file": "neon-breaker.html", "title": "Neon Breaker", "author": "GSNS" },
-  { "file": "snake.html", "title": "Tap Snake", "author": "GSNS" }
+  { "file": "snake.html", "title": "Tap Snake", "author": "GSNS" },
+  { "file": "mole-mash.html", "title": "Mole Mash 30s", "author": "GSNS" },
+  { "file": "star-catcher.html", "title": "Star Catcher", "author": "GSNS" },
+  { "file": "sky-hop.html", "title": "Sky Hop", "author": "GSNS" },
+  { "file": "memory-flip.html", "title": "Memory Flip", "author": "GSNS" },
+  { "file": "reflex-rush.html", "title": "Reflex Rush", "author": "GSNS" },
+  { "file": "simon-echo.html", "title": "Simon Echo", "author": "GSNS" }
 ]
