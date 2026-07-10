@@ -18,10 +18,21 @@
   addEventListener('resize',fit);fit();
   var COLORS=[['#e2394b','#ff8b96'],['#2f9e5f','#7dedae'],['#2f6fe0','#8db8ff'],['#e0a72f','#ffe08b']];
   var ON=420,GAP=170;
-  var seq=[],level=0,phase='show',phaseT=0,inputI=0,lit=-1,litT=0,over=false,lastT=0;
+  // whole sequence is drawn from the seeded RNG at load time so the RNG
+  // stream never depends on how far the player gets (keeps replays exact)
+  var SEQ=[];
+  for(var i=0;i<64;i++)SEQ.push((Math.random()*4)|0);
+  var level=0,phase='idle',phaseT=0,inputI=0,lit=-1,litT=0,over=false;
   function nextLevel(t){
-    seq.push((Math.random()*4)|0);
     level++;phase='show';phaseT=t+600;inputI=0;lit=-1;
+  }
+  // shared transition logic, called with frame time from draw() and with
+  // event time from the tap handler so replays don't depend on whether the
+  // event or the frame is processed first
+  function advance(t){
+    if(phase==='idle')nextLevel(t);
+    if(phase==='level-up'&&t-litT>500)nextLevel(t);
+    if(phase==='show'&&t>=phaseT+level*(ON+GAP)){phase='input';lit=-1;}
   }
   function padGeom(i){
     var cx=W/2,cy=H*0.52,r=Math.min(W,H)*0.42;
@@ -29,31 +40,27 @@
     return {x:cx+dx,y:cy+dy,r:r*0.46};
   }
   addEventListener('pointerdown',function(e){
-    var t=lastT;
-    if(over||phase!=='input')return;
+    var t=performance.now();
+    if(over)return;
+    advance(t);
+    if(phase!=='input')return;
     for(var i=0;i<4;i++){
       var g=padGeom(i);
       if(Math.hypot(e.clientX-g.x,e.clientY-g.y)<=g.r){
         lit=i;litT=t;
-        if(i===seq[inputI]){
+        if(i===SEQ[inputI]){
           inputI++;
-          if(inputI>=seq.length)phase='level-up';
+          if(inputI>=level)phase='level-up';
         }else{over=true;}
         break;
       }
     }
   });
   function draw(t){
-    lastT=t;
-    if(level===0)nextLevel(t);
-    if(phase==='level-up'&&t-litT>500)nextLevel(t);
+    if(!over)advance(t);
     if(phase==='show'&&t>=phaseT){
       var i=Math.floor((t-phaseT)/(ON+GAP));
-      if(i>=seq.length){phase='input';lit=-1;}
-      else{
-        var within=(t-phaseT)-i*(ON+GAP);
-        lit=within<ON?seq[i]:-1;
-      }
+      lit=i<level&&(t-phaseT)-i*(ON+GAP)<ON?SEQ[i]:-1;
     }
     if(phase==='input'&&lit>=0&&t-litT>260)lit=-1;
     ctx.clearRect(0,0,W,H);

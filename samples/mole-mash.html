@@ -16,59 +16,78 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
-  var DUR=30000,COLS=3,ROWS=4;
-  var holes=[],score=0,over=false,nextSpawn=600;
+  var DUR=30000,COLS=3,ROWS=4,N=COLS*ROWS;
+  var holes=[],score=0,over=false;
   for(var r=0;r<ROWS;r++)for(var q=0;q<COLS;q++)
-    holes.push({c:q,r:r,up:0,hit:0,gold:false});
+    holes.push({c:q,r:r,up:0,life:0,hit:0,gold:false});
+  function upTime(t){return Math.max(520,1000-t/60);}
+  // Pre-computed spawn schedule: all Math.random() is consumed at load time,
+  // so the RNG stream never depends on frame timing or player input and the
+  // 2x replay stays deterministic. Two candidate holes per event so a spawn
+  // rarely lands on an occupied hole.
+  var sched=[],st=600;
+  while(st<DUR-700){
+    sched.push({t:st,a:(Math.random()*N)|0,b:(Math.random()*N)|0,gold:Math.random()<0.12});
+    st+=Math.max(280,700-st/70);
+  }
+  var si=0;
+  function isUp(h,t){return h.up&&!h.hit&&t-h.up<h.life;}
+  function occupied(h,t){
+    if(!h.up)return false;
+    if(h.hit)return t-h.hit<200;      // pop animation still playing
+    return t-h.up<h.life;
+  }
+  function advance(t){
+    while(si<sched.length&&sched[si].t<=t){
+      var s=sched[si++];
+      var h=holes[s.a];
+      if(occupied(h,s.t))h=holes[s.b];
+      if(!occupied(h,s.t)){
+        h.up=s.t;h.life=upTime(s.t);h.hit=0;h.gold=s.gold;
+      }
+    }
+  }
   function geom(h){
     var gx=W*0.14,gy=H*0.20,gw=(W-gx*2)/COLS,gh=(H*0.70-gy)/ROWS;
     return {x:gx+gw*(h.c+0.5),y:gy+gh*(h.r+0.5),rad:Math.min(gw,gh)*0.34};
   }
-  function upTime(t){return Math.max(520,1000-t/60);}
   addEventListener('pointerdown',function(e){
-    if(over)return;
-    var t=lastT;
+    var t=performance.now();
+    if(over||t>=DUR)return;
+    advance(t);
     for(var i=0;i<holes.length;i++){
       var h=holes[i];
-      if(!h.up||h.hit)continue;
-      var g=geom(h);
-      if(Math.hypot(e.clientX-g.x,e.clientY-g.y)<=g.rad+16){
+      if(!isUp(h,t))continue;
+      var g=geom(h),my=g.y-g.rad*0.5; // drawn mole head center (full pop)
+      if(Math.hypot(e.clientX-g.x,e.clientY-g.y)<=g.rad+16||
+         Math.hypot(e.clientX-g.x,e.clientY-my)<=g.rad+14){
         h.hit=t;score+=h.gold?3:1;break;
       }
     }
   });
-  var lastT=0;
   function draw(t){
-    lastT=t;
+    if(!over)advance(t);
     ctx.clearRect(0,0,W,H);
     var bg=ctx.createLinearGradient(0,0,0,H);
     bg.addColorStop(0,'#16321c');bg.addColorStop(1,'#0a140c');
     ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
-    if(!over&&t>=nextSpawn&&t<DUR-700){
-      var free=holes.filter(function(h){return !h.up;});
-      if(free.length){
-        var h=free[(Math.random()*free.length)|0];
-        h.up=t;h.hit=0;h.gold=Math.random()<0.12;
-      }
-      nextSpawn+=Math.max(280,700-t/70);
-    }
     for(var i=0;i<holes.length;i++){
       var h=holes[i],g=geom(h);
       // hole
       ctx.fillStyle='#07110a';
       ctx.beginPath();ctx.ellipse(g.x,g.y+g.rad*0.55,g.rad*1.05,g.rad*0.42,0,0,7);ctx.fill();
       if(!h.up)continue;
-      var age=t-h.up,life=upTime(h.up);
       if(h.hit){
         var p=(t-h.hit)/200;
-        if(p>=1){h.up=0;continue;}
+        if(p>=1)continue;
         ctx.strokeStyle='rgba(255,230,120,'+(1-p)+')';
         ctx.lineWidth=5;ctx.beginPath();
         ctx.arc(g.x,g.y,g.rad*(1+p),0,7);ctx.stroke();
         continue;
       }
-      if(age>=life){h.up=0;continue;}
-      var k=Math.min(1,age/130)*Math.min(1,(life-age)/130); // pop in/out
+      var age=t-h.up;
+      if(age>=h.life)continue;
+      var k=Math.min(1,age/130)*Math.min(1,(h.life-age)/130); // pop in/out
       var rad=g.rad*(0.4+0.6*k),my=g.y+g.rad*0.4-rad*0.9;
       ctx.fillStyle=h.gold?'#f4c542':'#a9764b';
       ctx.beginPath();ctx.arc(g.x,my,rad,0,7);ctx.fill();

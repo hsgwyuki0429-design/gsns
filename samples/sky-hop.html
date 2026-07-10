@@ -37,7 +37,7 @@
     for(var i=gates.length-1;i>=0;i--){
       var gt=gates[i],rel=gt.x-scroll; // 0..1 across screen
       if(rel<-0.2){gates.splice(i,1);continue;}
-      var halfW=0.045;
+      var halfW=0.045+0.05; // pipe half-width + bird body (screen fractions)
       if(Math.abs(rel-bx)<halfW){
         if(Math.abs(by-gt.gy)>gt.gap*0.5-0.028)over=true;
       }
