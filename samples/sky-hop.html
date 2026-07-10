@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Sky Hop</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0a1530;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+  var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
+  function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
+  addEventListener('resize',fit);fit();
+  var STEP=1000/120;
+  // world units: y in [0,1] of height, x in seconds of scroll
+  var by=0.45,vy=0,started=false,over=false,score=0;
+  var GRAV=0.0000022,JUMP=-0.00085,SPEED=0.00028; // per ms
+  var gates=[],nextGate=1.0,acc=0,prev=-1,scroll=0,flap=0;
+  addEventListener('pointerdown',function(){
+    if(over)return;
+    started=true;vy=JUMP;flap=scroll;
+  });
+  function tick(){
+    if(!started)return;
+    scroll+=SPEED*STEP;
+    vy+=GRAV*STEP;by+=vy*STEP;
+    while(nextGate<scroll+1.5){
+      gates.push({x:nextGate,gap:0.30+0.10*Math.random(),gy:0.24+0.44*Math.random(),passed:false});
+      nextGate+=0.62;
+    }
+    var bx=0.30; // bird screen x (fraction of screen width)
+    for(var i=gates.length-1;i>=0;i--){
+      var gt=gates[i],rel=gt.x-scroll; // 0..1 across screen
+      if(rel<-0.2){gates.splice(i,1);continue;}
+      var halfW=0.045;
+      if(Math.abs(rel-bx)<halfW){
+        if(Math.abs(by-gt.gy)>gt.gap*0.5-0.028)over=true;
+      }
+      if(!gt.passed&&rel<bx-halfW){gt.passed=true;score++;}
+    }
+    if(by>0.97||by<0.05)over=true;
+  }
+  function draw(t){
+    if(prev<0)prev=t;
+    acc+=t-prev;prev=t;
+    while(acc>=STEP){if(!over)tick();acc-=STEP;}
+    ctx.clearRect(0,0,W,H);
+    var g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#12245c');g.addColorStop(1,'#071022');
+    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    // parallax dots
+    ctx.fillStyle='rgba(255,255,255,.25)';
+    for(var i=0;i<24;i++){
+      var sx=((i*0.618+1000-scroll*0.4)%1)*W,sy=((i*0.417)%1)*H;
+      ctx.fillRect(sx,sy,2,2);
+    }
+    // gates
+    for(var i=0;i<gates.length;i++){
+      var gt=gates[i],rel=gt.x-scroll,x=rel*W,pw=0.09*W;
+      var gapTop=(gt.gy-gt.gap*0.5)*H,gapBot=(gt.gy+gt.gap*0.5)*H;
+      ctx.fillStyle='#2ec27e';
+      ctx.fillRect(x-pw/2,0,pw,gapTop);
+      ctx.fillRect(x-pw/2,gapBot,pw,H-gapBot);
+      ctx.fillStyle='#6ff0b0';
+      ctx.fillRect(x-pw/2,gapTop-10,pw,10);
+      ctx.fillRect(x-pw/2,gapBot,pw,10);
+    }
+    // bird
+    var bxp=0.30*W,byp=by*H,r=Math.min(W,H)*0.035+8;
+    var wob=Math.max(0,1-(scroll-flap)*22);
+    ctx.save();ctx.translate(bxp,byp);
+    ctx.rotate(Math.min(0.9,Math.max(-0.6,vy*600)));
+    ctx.fillStyle='#ffd23e';
+    ctx.beginPath();ctx.arc(0,0,r,0,7);ctx.fill();
+    ctx.fillStyle='#ff9d2e';
+    ctx.beginPath();ctx.ellipse(-r*0.15,r*0.12,r*0.55,r*(0.30+0.25*wob),-0.4,0,7);ctx.fill();
+    ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(r*0.38,-r*0.28,r*0.26,0,7);ctx.fill();
+    ctx.fillStyle='#222';
+    ctx.beginPath();ctx.arc(r*0.46,-r*0.28,r*0.12,0,7);ctx.fill();
+    ctx.fillStyle='#ff6b35';
+    ctx.beginPath();ctx.moveTo(r*0.9,0);ctx.lineTo(r*1.45,r*0.12);ctx.lineTo(r*0.9,r*0.3);ctx.closePath();ctx.fill();
+    ctx.restore();
+    // HUD
+    ctx.fillStyle='#fff';ctx.textAlign='left';
+    ctx.font='700 22px system-ui';ctx.fillText('SCORE '+score,16,86);
+    if(!started){
+      ctx.textAlign='center';ctx.font='700 30px system-ui';
+      ctx.fillStyle='rgba(255,255,255,.9)';
+      ctx.fillText('TAP TO FLY',W/2,H*0.68);
+    }
+    if(over){
+      ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillRect(0,0,W,H);
+      ctx.textAlign='center';
+      ctx.font='800 54px system-ui';
+      ctx.fillStyle='#fff';ctx.fillText('SCORE',W/2,H/2-40);
+      ctx.font='800 96px system-ui';
+      ctx.fillStyle='#ffd23e';ctx.fillText(score,W/2,H/2+62);
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

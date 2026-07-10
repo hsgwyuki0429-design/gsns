@@ -268,12 +268,16 @@ app.use(express.static(PUBLIC_DIR, { maxAge: '1h' }));
 
 /* ---------- seed sample games on first boot ---------- */
 async function seedSamples() {
-  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM games');
-  if (rows[0].n > 0) return;
   const metaPath = path.join(SAMPLES_DIR, 'meta.json');
   if (!fs.existsSync(metaPath)) return;
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+  // idempotent: only insert samples whose title isn't in the DB yet, so new
+  // samples added in later releases show up on existing deployments too
+  const { rows } = await pool.query("SELECT title FROM games WHERE author = 'GSNS'");
+  const have = new Set(rows.map((r) => r.title));
+  let n = 0;
   for (const s of meta) {
+    if (have.has(s.title)) continue;
     const src = path.join(SAMPLES_DIR, s.file);
     if (!fs.existsSync(src)) continue;
     const file = crypto.randomUUID() + '.html';
@@ -282,8 +286,9 @@ async function seedSamples() {
       'INSERT INTO games (title, author, file, created_at) VALUES ($1, $2, $3, $4)',
       [s.title, s.author || 'GSNS', file, Date.now()]
     );
+    n++;
   }
-  console.log(`seeded ${meta.length} sample games`);
+  if (n) console.log(`seeded ${n} sample games`);
 }
 
 /* ---------- boot: schema first, then seed, then listen ---------- */

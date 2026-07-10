@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Simon Echo</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0f1218;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+  var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
+  function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
+  addEventListener('resize',fit);fit();
+  var COLORS=[['#e2394b','#ff8b96'],['#2f9e5f','#7dedae'],['#2f6fe0','#8db8ff'],['#e0a72f','#ffe08b']];
+  var ON=420,GAP=170;
+  var seq=[],level=0,phase='show',phaseT=0,inputI=0,lit=-1,litT=0,over=false,lastT=0;
+  function nextLevel(t){
+    seq.push((Math.random()*4)|0);
+    level++;phase='show';phaseT=t+600;inputI=0;lit=-1;
+  }
+  function padGeom(i){
+    var cx=W/2,cy=H*0.52,r=Math.min(W,H)*0.42;
+    var dx=(i%2?1:-1)*r*0.52,dy=(i>1?1:-1)*r*0.52;
+    return {x:cx+dx,y:cy+dy,r:r*0.46};
+  }
+  addEventListener('pointerdown',function(e){
+    var t=lastT;
+    if(over||phase!=='input')return;
+    for(var i=0;i<4;i++){
+      var g=padGeom(i);
+      if(Math.hypot(e.clientX-g.x,e.clientY-g.y)<=g.r){
+        lit=i;litT=t;
+        if(i===seq[inputI]){
+          inputI++;
+          if(inputI>=seq.length)phase='level-up';
+        }else{over=true;}
+        break;
+      }
+    }
+  });
+  function draw(t){
+    lastT=t;
+    if(level===0)nextLevel(t);
+    if(phase==='level-up'&&t-litT>500)nextLevel(t);
+    if(phase==='show'&&t>=phaseT){
+      var i=Math.floor((t-phaseT)/(ON+GAP));
+      if(i>=seq.length){phase='input';lit=-1;}
+      else{
+        var within=(t-phaseT)-i*(ON+GAP);
+        lit=within<ON?seq[i]:-1;
+      }
+    }
+    if(phase==='input'&&lit>=0&&t-litT>260)lit=-1;
+    ctx.clearRect(0,0,W,H);
+    var bg=ctx.createRadialGradient(W/2,H*0.52,0,W/2,H*0.52,Math.max(W,H)*0.8);
+    bg.addColorStop(0,'#1a2030');bg.addColorStop(1,'#0a0d13');
+    ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+    for(var i=0;i<4;i++){
+      var g=padGeom(i),on=lit===i;
+      ctx.fillStyle=on?COLORS[i][1]:COLORS[i][0];
+      ctx.globalAlpha=on?1:(phase==='input'?0.85:0.5);
+      ctx.beginPath();ctx.arc(g.x,g.y,g.r,0,7);ctx.fill();
+      ctx.globalAlpha=1;
+      if(on){
+        ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=6;
+        ctx.beginPath();ctx.arc(g.x,g.y,g.r+6,0,7);ctx.stroke();
+      }
+    }
+    // HUD
+    ctx.fillStyle='#fff';ctx.textAlign='left';
+    ctx.font='700 22px system-ui';ctx.fillText('LEVEL '+level,16,86);
+    ctx.textAlign='center';ctx.font='700 24px system-ui';
+    ctx.globalAlpha=0.85;
+    if(!over)ctx.fillText(phase==='input'?'YOUR TURN':'WATCH…',W/2,H*0.13);
+    ctx.globalAlpha=1;
+    if(over){
+      ctx.fillStyle='rgba(0,0,0,.55)';ctx.fillRect(0,0,W,H);
+      ctx.textAlign='center';
+      ctx.font='800 50px system-ui';
+      ctx.fillStyle='#fff';ctx.fillText('LEVEL',W/2,H/2-40);
+      ctx.font='800 96px system-ui';
+      ctx.fillStyle='#ffe08b';ctx.fillText(level,W/2,H/2+62);
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

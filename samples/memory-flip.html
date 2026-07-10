@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Memory Flip</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#1a1030;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+  var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
+  function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
+  addEventListener('resize',fit);fit();
+  var EMOJI=['🍎','🍋','🍇','🌙','⭐','🐟','🎈','🍀'];
+  var deck=[];
+  for(var i=0;i<8;i++){deck.push(i);deck.push(i);}
+  for(var i=deck.length-1;i>0;i--){ // Fisher–Yates (seeded Math.random)
+    var j=(Math.random()*(i+1))|0,tmp=deck[i];deck[i]=deck[j];deck[j]=tmp;
+  }
+  var COLS=4,ROWS=4;
+  var cards=deck.map(function(v,i){
+    return {v:v,c:i%COLS,r:(i/COLS)|0,state:0,flipT:0}; // 0 down, 1 up, 2 matched
+  });
+  var open=[],closeAt=0,startT=0,doneT=0,lastT=0,moves=0;
+  function geom(cd){
+    var pad=Math.min(W,H)*0.02;
+    var gx=W*0.06,gy=H*0.17,gw=(W-gx*2)/COLS,gh=(H*0.78-gy)/ROWS;
+    return {x:gx+gw*cd.c+pad/2,y:gy+gh*cd.r+pad/2,w:gw-pad,h:gh-pad};
+  }
+  addEventListener('pointerdown',function(e){
+    var t=lastT;
+    if(doneT)return;
+    if(open.length===2)return; // waiting for close timer
+    for(var i=0;i<cards.length;i++){
+      var cd=cards[i],g=geom(cd);
+      if(cd.state!==0)continue;
+      if(e.clientX>=g.x&&e.clientX<=g.x+g.w&&e.clientY>=g.y&&e.clientY<=g.y+g.h){
+        if(!startT)startT=t;
+        cd.state=1;cd.flipT=t;open.push(cd);
+        if(open.length===2){
+          moves++;
+          if(open[0].v===open[1].v){
+            open[0].state=2;open[1].state=2;open=[];
+            if(cards.every(function(c){return c.state===2;}))doneT=t;
+          }else closeAt=t+700;
+        }
+        break;
+      }
+    }
+  });
+  function rrect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+  }
+  function draw(t){
+    lastT=t;
+    if(open.length===2&&closeAt&&t>=closeAt){
+      open[0].state=0;open[1].state=0;open=[];closeAt=0;
+    }
+    ctx.clearRect(0,0,W,H);
+    var bg=ctx.createLinearGradient(0,0,0,H);
+    bg.addColorStop(0,'#241546');bg.addColorStop(1,'#120a22');
+    ctx.fillStyle=bg;ctx.fillRect(0,0,W,H);
+    for(var i=0;i<cards.length;i++){
+      var cd=cards[i],g=geom(cd);
+      var flip=Math.min(1,(t-cd.flipT)/180);
+      var openNow=cd.state!==0;
+      // horizontal squash for flip animation
+      var k=cd.flipT?Math.abs(1-2*flip):1;
+      var showFace=cd.flipT?(flip>0.5?openNow:!openNow):openNow;
+      var cx=g.x+g.w/2,w2=g.w*(cd.flipT&&flip<1?k:1);
+      var x=cx-w2/2;
+      if(showFace){
+        ctx.fillStyle=cd.state===2?'#2e2358':'#f5f0ff';
+        rrect(x,g.y,w2,g.h,10);ctx.fill();
+        ctx.font=(Math.min(w2,g.h)*0.55|0)+'px system-ui';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.globalAlpha=cd.state===2?0.85:1;
+        ctx.fillText(EMOJI[cd.v],cx,g.y+g.h/2+2);
+        ctx.globalAlpha=1;
+      }else{
+        ctx.fillStyle='#5b3fb8';
+        rrect(x,g.y,w2,g.h,10);ctx.fill();
+        ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=2;
+        rrect(x+5,g.y+5,Math.max(0,w2-10),g.h-10,7);ctx.stroke();
+      }
+    }
+    ctx.textBaseline='alphabetic';
+    // HUD
+    var el=startT?((doneT||t)-startT)/1000:0;
+    ctx.fillStyle='#fff';ctx.textAlign='left';
+    ctx.font='700 22px system-ui';ctx.fillText('TIME '+el.toFixed(1)+'s',16,86);
+    ctx.textAlign='right';ctx.fillText(moves+' moves',W-16,86);
+    if(doneT){
+      ctx.fillStyle='rgba(0,0,0,.5)';ctx.fillRect(0,0,W,H);
+      ctx.textAlign='center';
+      ctx.font='800 50px system-ui';
+      ctx.fillStyle='#fff';ctx.fillText('CLEAR!',W/2,H/2-46);
+      ctx.font='800 72px system-ui';
+      ctx.fillStyle='#c9a7ff';ctx.fillText(el.toFixed(1)+'s',W/2,H/2+40);
+      ctx.font='700 26px system-ui';
+      ctx.fillStyle='#fff';ctx.fillText(moves+' moves',W/2,H/2+92);
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>
