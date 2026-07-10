@@ -22,6 +22,32 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+// --- TEMP connection diagnostics: masked, prints NO secrets --------------
+// Helps locate a bad DATABASE_URL (hidden whitespace, stray brackets/quotes,
+// wrong host/user). Remove once the deploy connects successfully.
+(() => {
+  const raw = process.env.DATABASE_URL;
+  console.log('[db-diag] DATABASE_URL rawLength=%d trimmedDiffers=%s',
+    raw.length, String(raw !== raw.trim()));
+  try {
+    const u = new URL(raw);
+    const pw = u.password || '';
+    let decoded = pw;
+    try { decoded = decodeURIComponent(pw); } catch (_) { /* keep raw */ }
+    const alnum = (c) => /^[A-Za-z0-9]$/.test(c);
+    console.log('[db-diag] host=%s port=%s user=%s db=%s',
+      u.hostname, u.port, u.username, u.pathname.replace(/^\//, ''));
+    console.log('[db-diag] passwordLength=%d hasWhitespace=%s hasNonAlnum=%s firstIsAlnum=%s lastIsAlnum=%s',
+      decoded.length,
+      String(/\s/.test(decoded)),
+      String(/[^A-Za-z0-9]/.test(decoded)),
+      String(alnum(decoded.slice(0, 1))),
+      String(alnum(decoded.slice(-1))));
+  } catch (e) {
+    console.log('[db-diag] URL parse failed:', e.message);
+  }
+})();
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 5, // Supabase free-tier pooler friendly
