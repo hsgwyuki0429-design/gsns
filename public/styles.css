@@ -46,6 +46,22 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
   width: 100%; height: 100%; border: 0; display: block; background: #101220;
 }
 .slide.replaying .frame-wrap iframe { pointer-events: none; }
+/* once the game announced game-over the run is saved — give the touch
+   surface back to the feed so the player can swipe on */
+.slide.game-over .frame-wrap iframe { pointer-events: none; }
+
+.swipe-hint {
+  position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 108px);
+  transform: translateX(-50%); z-index: 7; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; gap: 0;
+  font-size: 14px; font-weight: 700; text-shadow: 0 1px 8px rgba(0,0,0,.85);
+  animation: hintBounce 1.4s ease-in-out infinite;
+}
+.swipe-hint .chev { font-size: 24px; line-height: 0.8; }
+@keyframes hintBounce {
+  0%, 100% { transform: translate(-50%, 0); }
+  50% { transform: translate(-50%, -10px); }
+}
 
 .slide .spinner {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;

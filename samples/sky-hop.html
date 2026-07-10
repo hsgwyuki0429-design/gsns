@@ -18,7 +18,7 @@
   addEventListener('resize',fit);fit();
   var STEP=1000/120;
   // world units: y in [0,1] of height, x in seconds of scroll
-  var by=0.45,vy=0,started=false,over=false,score=0;
+  var by=0.45,vy=0,started=false,over=false,overSent=false,score=0;
   var GRAV=0.0000022,JUMP=-0.00085,SPEED=0.00028; // per ms
   var gates=[],nextGate=1.0,acc=0,prev=-1,scroll=0,flap=0;
   addEventListener('pointerdown',function(){
@@ -49,6 +49,7 @@
     if(prev<0)prev=t;
     acc+=t-prev;prev=t;
     while(acc>=STEP){if(!over)tick();acc-=STEP;}
+    if(over&&!overSent){overSent=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
     ctx.clearRect(0,0,W,H);
     var g=ctx.createLinearGradient(0,0,0,H);
     g.addColorStop(0,'#12245c');g.addColorStop(1,'#071022');

@@ -35,6 +35,7 @@
     recorded: 'プレイを記録しました！次の人はリプレイを見ます',
     yourTurn: 'タップして操作！',
     replayNote: '倍速',
+    swipeNext: '上にスワイプで次のゲームへ',
     // en uses 'x' suffix, ja uses 倍速
   };
   var en = {
@@ -72,6 +73,7 @@
     recorded: 'Play recorded! The next viewer sees your replay',
     yourTurn: 'Tap to play!',
     replayNote: 'x',
+    swipeNext: 'Swipe up for the next game',
   };
   window.L = (navigator.language || '').toLowerCase().indexOf('ja') === 0 ? ja : en;
 })();

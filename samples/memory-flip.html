@@ -55,7 +55,9 @@
           moves++;
           if(open[0].v===open[1].v){
             open[0].state=2;open[1].state=2;open=[];
-            if(cards.every(function(c){return c.state===2;}))doneT=t;
+            if(cards.every(function(c){return c.state===2;})){
+              doneT=t;try{parent.postMessage({gsns:'game-over'},'*');}catch(err){}
+            }
           }else closeAt=t+700;
         }
         break;
