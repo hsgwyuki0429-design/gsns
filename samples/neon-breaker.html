@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Neon Breaker</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#07091a;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+  var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
+  function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
+  addEventListener('resize',fit);fit();
+  // fixed-timestep simulation → identical trajectory at any playback speed
+  var STEP=1000/120,acc=0,last=0;
+  var padX=0.5,padW=0.24,padH=14;
+  var ball={x:0.5,y:0.62,vx:0.00023,vy:-0.00038,r:9};
+  var cols=6,rows=6,bricks=[],score=0,lives=3,state='play';
+  for(var r=0;r<rows;r++)for(var c=0;c<cols;c++)
+    bricks.push({c:c,r:r,alive:true,hue:(300+r*22)%360});
+  addEventListener('pointermove',function(e){padX=e.clientX/innerWidth;});
+  addEventListener('pointerdown',function(e){padX=e.clientX/innerWidth;});
+  function brickRect(b){
+    var m=0.012,bw=(1-m*(cols+1))/cols;
+    return {x:(m+b.c*(bw+m))*W,y:(0.10+b.r*0.045)*H,w:bw*W,h:0.035*H};
+  }
+  function sim(){
+    if(state!=='play')return;
+    ball.x+=ball.vx*STEP;ball.y+=ball.vy*STEP;
+    if(ball.x<0.02){ball.x=0.02;ball.vx=Math.abs(ball.vx);}
+    if(ball.x>0.98){ball.x=0.98;ball.vx=-Math.abs(ball.vx);}
+    if(ball.y<0.05){ball.y=0.05;ball.vy=Math.abs(ball.vy);}
+    var py=0.88;
+    if(ball.vy>0&&ball.y>=py-0.012&&ball.y<=py+0.012&&Math.abs(ball.x-padX)<=padW/2+0.02){
+      ball.vy=-Math.abs(ball.vy);
+      ball.vx+= (ball.x-padX)*0.0016;
+      ball.vx=Math.max(-0.0006,Math.min(0.0006,ball.vx));
+    }
+    if(ball.y>1.05){
+      lives--;
+      if(lives<=0){state='lose';return;}
+      ball.x=0.5;ball.y=0.62;ball.vx=0.00023;ball.vy=-0.00038;
+    }
+    var bx=ball.x*W,by=ball.y*H,alive=0;
+    for(var i=0;i<bricks.length;i++){
+      var b=bricks[i];if(!b.alive)continue;alive++;
+      var rc=brickRect(b);
+      if(bx>rc.x-ball.r&&bx<rc.x+rc.w+ball.r&&by>rc.y-ball.r&&by<rc.y+rc.h+ball.r){
+        b.alive=false;score+=10;alive--;
+        var ox=Math.min(bx-(rc.x-ball.r),(rc.x+rc.w+ball.r)-bx);
+        var oy=Math.min(by-(rc.y-ball.r),(rc.y+rc.h+ball.r)-by);
+        if(ox<oy)ball.vx=-ball.vx;else ball.vy=-ball.vy;
+      }
+    }
+    if(alive===0)state='win';
+  }
+  function draw(t){
+    if(!last)last=t;
+    acc+=Math.min(t-last,250);last=t;
+    while(acc>=STEP){sim();acc-=STEP;}
+    ctx.clearRect(0,0,W,H);
+    var g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#0c1030');g.addColorStop(1,'#05060f');
+    ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    for(var i=0;i<bricks.length;i++){
+      var b=bricks[i];if(!b.alive)continue;
+      var rc=brickRect(b);
+      ctx.fillStyle='hsl('+b.hue+',85%,60%)';
+      ctx.shadowColor='hsl('+b.hue+',85%,60%)';ctx.shadowBlur=12;
+      ctx.fillRect(rc.x,rc.y,rc.w,rc.h);
+    }
+    ctx.shadowBlur=18;ctx.shadowColor='#7c6cff';
+    ctx.fillStyle='#cfc8ff';
+    ctx.fillRect((padX-padW/2)*W,0.88*H-padH/2,padW*W,padH);
+    ctx.shadowColor='#ff5ca8';ctx.fillStyle='#ffdff0';
+    ctx.beginPath();ctx.arc(ball.x*W,ball.y*H,ball.r,0,7);ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.fillStyle='#fff';ctx.font='700 20px system-ui';
+    ctx.textAlign='left';ctx.fillText('SCORE '+score,14,84);
+    ctx.textAlign='right';ctx.fillText('♥'.repeat(Math.max(lives,0)),W-14,84);
+    if(state!=='play'){
+      ctx.textAlign='center';ctx.font='800 56px system-ui';
+      ctx.fillStyle=state==='win'?'#7dffb0':'#ff6d8c';
+      ctx.fillText(state==='win'?'CLEAR!':'GAME OVER',W/2,H/2);
+      ctx.font='700 26px system-ui';ctx.fillStyle='#fff';
+      ctx.fillText('SCORE '+score,W/2,H/2+48);
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

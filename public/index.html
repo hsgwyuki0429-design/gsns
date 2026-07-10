@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>GSNS — 流れるゲームSNS</title>
+<meta name="description" content="TikTok-style feed of playable games. The first viewer plays — everyone else watches the replay.">
+<meta name="theme-color" content="#0b0c12">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon-192.png">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header id="topbar">
+  <div class="logo">GSNS</div>
+  <div class="top-actions">
+    <button id="installBtn" class="pill hidden"></button>
+    <button id="uploadBtn" class="pill primary"></button>
+  </div>
+</header>
+
+<main id="feed"></main>
+<div id="feedEnd" class="feed-end hidden"></div>
+
+<!-- onboarding -->
+<div id="onboard" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2 id="obTitle"></h2>
+    <p id="obBody"></p>
+    <button id="obClose" class="btn primary"></button>
+  </div>
+</div>
+
+<!-- comments bottom sheet -->
+<div id="sheetBackdrop" class="sheet-backdrop hidden"></div>
+<div id="commentSheet" class="sheet hidden">
+  <div class="sheet-handle"></div>
+  <h3 id="commentTitle"></h3>
+  <ul id="commentList"></ul>
+  <form id="commentForm">
+    <input id="commentName" maxlength="30" autocomplete="nickname">
+    <div class="comment-row">
+      <input id="commentText" maxlength="500" autocomplete="off">
+      <button type="submit" class="btn primary" id="commentSend"></button>
+    </div>
+  </form>
+</div>
+
+<!-- upload modal -->
+<div id="uploadModal" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2 id="upTitle"></h2>
+    <label id="upTitleLabel"></label>
+    <input id="upGameTitle" maxlength="60">
+    <label id="upAuthorLabel"></label>
+    <input id="upAuthor" maxlength="30">
+    <label id="upFileLabel"></label>
+    <input id="upFile" type="file" accept=".html,.htm,text/html">
+    <p class="hint" id="upHint"></p>
+    <div class="modal-actions">
+      <button id="upCancel" class="btn"></button>
+      <button id="upSubmit" class="btn primary"></button>
+    </div>
+  </div>
+</div>
+
+<!-- iOS install instructions -->
+<div id="iosInstall" class="modal-backdrop hidden">
+  <div class="modal">
+    <h2 id="iosTitle"></h2>
+    <p id="iosBody"></p>
+    <button id="iosClose" class="btn primary"></button>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="/i18n.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

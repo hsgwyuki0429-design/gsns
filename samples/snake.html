@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Tap Snake</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#081018;touch-action:none}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+  var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
+  function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
+  addEventListener('resize',fit);fit();
+  var COLS=15,ROWS=22,TICK=140;
+  var snake=[{x:7,y:14},{x:7,y:15},{x:7,y:16}];
+  var dir={x:0,y:-1},nextDir={x:0,y:-1},food=null,score=0,over=false,lastTick=0;
+  function placeFood(){
+    while(true){
+      var f={x:(Math.random()*COLS)|0,y:(Math.random()*ROWS)|0},hit=false;
+      for(var i=0;i<snake.length;i++)if(snake[i].x===f.x&&snake[i].y===f.y){hit=true;break;}
+      if(!hit){food=f;return;}
+    }
+  }
+  placeFood();
+  function setDir(x,y){ if(x===-dir.x&&y===-dir.y)return; nextDir={x:x,y:y}; }
+  addEventListener('keydown',function(e){
+    if(e.key==='ArrowUp')setDir(0,-1);else if(e.key==='ArrowDown')setDir(0,1);
+    else if(e.key==='ArrowLeft')setDir(-1,0);else if(e.key==='ArrowRight')setDir(1,0);
+  });
+  addEventListener('pointerdown',function(e){
+    // tap relative to the head: dominant axis wins
+    var cell=Math.min(W/COLS,H/ROWS),ox=(W-cell*COLS)/2,oy=(H-cell*ROWS)/2;
+    var hx=ox+(snake[0].x+0.5)*cell,hy=oy+(snake[0].y+0.5)*cell;
+    var dx=e.clientX-hx,dy=e.clientY-hy;
+    if(Math.abs(dx)>Math.abs(dy))setDir(dx>0?1:-1,0);else setDir(0,dy>0?1:-1);
+  });
+  function tick(){
+    dir=nextDir;
+    var h={x:snake[0].x+dir.x,y:snake[0].y+dir.y};
+    if(h.x<0||h.x>=COLS||h.y<0||h.y>=ROWS){over=true;return;}
+    for(var i=0;i<snake.length-1;i++)if(snake[i].x===h.x&&snake[i].y===h.y){over=true;return;}
+    snake.unshift(h);
+    if(food&&h.x===food.x&&h.y===food.y){score++;placeFood();}
+    else snake.pop();
+  }
+  function draw(t){
+    if(!over){ while(t-lastTick>=TICK){lastTick+=TICK;tick();if(over)break;} }
+    var cell=Math.min(W/COLS,H/ROWS),ox=(W-cell*COLS)/2,oy=(H-cell*ROWS)/2;
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle='#0b1622';ctx.fillRect(ox,oy,cell*COLS,cell*ROWS);
+    ctx.strokeStyle='rgba(255,255,255,.05)';
+    ctx.strokeRect(ox,oy,cell*COLS,cell*ROWS);
+    if(food){
+      ctx.fillStyle='#ff5c7a';ctx.shadowColor='#ff5c7a';ctx.shadowBlur=14;
+      ctx.beginPath();ctx.arc(ox+(food.x+0.5)*cell,oy+(food.y+0.5)*cell,cell*0.34,0,7);ctx.fill();
+      ctx.shadowBlur=0;
+    }
+    for(var i=snake.length-1;i>=0;i--){
+      var s=snake[i],k=1-i/snake.length;
+      ctx.fillStyle=i===0?'#8affc1':'hsl(150,70%,'+(35+k*25)+'%)';
+      var p=cell*0.08;
+      ctx.fillRect(ox+s.x*cell+p,oy+s.y*cell+p,cell-2*p,cell-2*p);
+    }
+    ctx.fillStyle='#fff';ctx.font='700 20px system-ui';ctx.textAlign='left';
+    ctx.fillText('SCORE '+score,14,84);
+    if(over){
+      ctx.textAlign='center';ctx.font='800 52px system-ui';ctx.fillStyle='#ff6d8c';
+      ctx.fillText('GAME OVER',W/2,H/2);
+      ctx.font='700 24px system-ui';ctx.fillStyle='#fff';
+      ctx.fillText('SCORE '+score,W/2,H/2+44);
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+})();
+</script>
+</body>
+</html>

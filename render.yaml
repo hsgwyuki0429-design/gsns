@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: gsns
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+    # Note: the free plan has no persistent disk — uploaded games and
+    # recordings are lost on redeploy/restart. For real use, switch to a
+    # paid plan and mount a disk at /var/data, then set DATA_DIR=/var/data.

@@ -1,0 +1,20 @@
+{
+  "name": "gsns",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GSNS — TikTok-style feed for playable games. First viewer plays, everyone else watches the replay.",
+  "scripts": {
+    "start": "node server/server.js",
+    "icons": "node scripts/gen-icons.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "playwright": "^1.61.1"
+  }
+}
