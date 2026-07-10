@@ -17,29 +17,38 @@
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
   var ROUNDS=5,PENALTY=1000;
+  // all randomness consumed at load time → replay-safe RNG stream
+  var DELAYS=[];
+  for(var i=0;i<ROUNDS;i++)DELAYS.push(900+2100*Math.random());
   // phase: 'wait' (red), 'go' (green), 'result', 'done'
-  var round=0,phase='result',phaseT=0,goAt=0,times=[],lastMs=0,lastEarly=false,lastT=0;
+  var round=0,phase='result',phaseT=0,goAt=0,times=[],lastMs=0,lastEarly=false;
   function startRound(t){
     round++;phase='wait';phaseT=t;
-    goAt=t+900+2100*Math.random();
+    goAt=t+DELAYS[round-1];
   }
-  addEventListener('pointerdown',function(){
-    var t=lastT;
-    if(phase==='wait'){
-      lastMs=PENALTY;lastEarly=true;times.push(PENALTY);
-      phase='result';phaseT=t;
-    }else if(phase==='go'){
-      lastMs=Math.round(t-goAt);lastEarly=false;times.push(lastMs);
-      phase='result';phaseT=t;
-    }
-  });
-  function draw(t){
-    lastT=t;
+  // called with frame time from draw() and event time from the tap handler,
+  // so a tap right after the light turns green is judged by its own
+  // timestamp — not by whether a frame happened to render first
+  function advance(t){
     if(phase==='result'&&t-phaseT>=(round===0?400:1100)){
       if(round>=ROUNDS)phase='done';
       else startRound(t);
     }
-    if(phase==='wait'&&t>=goAt){phase='go';}
+    if(phase==='wait'&&t>=goAt)phase='go';
+  }
+  addEventListener('pointerdown',function(){
+    var t=performance.now();
+    advance(t);
+    if(phase==='wait'){
+      lastMs=PENALTY;lastEarly=true;times.push(PENALTY);
+      phase='result';phaseT=t;
+    }else if(phase==='go'){
+      lastMs=Math.max(0,Math.round(t-goAt));lastEarly=false;times.push(lastMs);
+      phase='result';phaseT=t;
+    }
+  });
+  function draw(t){
+    advance(t);
     var col=phase==='go'?'#1f9d55':(phase==='wait'?'#b3202f':'#241318');
     ctx.fillStyle=col;ctx.fillRect(0,0,W,H);
     ctx.textAlign='center';ctx.fillStyle='#fff';

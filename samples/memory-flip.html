@@ -26,15 +26,24 @@
   var cards=deck.map(function(v,i){
     return {v:v,c:i%COLS,r:(i/COLS)|0,state:0,flipT:0}; // 0 down, 1 up, 2 matched
   });
-  var open=[],closeAt=0,startT=0,doneT=0,lastT=0,moves=0;
+  var open=[],closeAt=0,startT=0,doneT=0,moves=0;
+  // close an expired mismatched pair; called with frame time from draw()
+  // and with event time from the tap handler so a tap right at the close
+  // boundary behaves the same in recording and replay
+  function closeDue(t){
+    if(open.length===2&&closeAt&&t>=closeAt){
+      open[0].state=0;open[1].state=0;open=[];closeAt=0;
+    }
+  }
   function geom(cd){
     var pad=Math.min(W,H)*0.02;
     var gx=W*0.06,gy=H*0.17,gw=(W-gx*2)/COLS,gh=(H*0.78-gy)/ROWS;
     return {x:gx+gw*cd.c+pad/2,y:gy+gh*cd.r+pad/2,w:gw-pad,h:gh-pad};
   }
   addEventListener('pointerdown',function(e){
-    var t=lastT;
+    var t=performance.now();
     if(doneT)return;
+    closeDue(t);
     if(open.length===2)return; // waiting for close timer
     for(var i=0;i<cards.length;i++){
       var cd=cards[i],g=geom(cd);
@@ -59,10 +68,7 @@
     ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
   }
   function draw(t){
-    lastT=t;
-    if(open.length===2&&closeAt&&t>=closeAt){
-      open[0].state=0;open[1].state=0;open=[];closeAt=0;
-    }
+    closeDue(t);
     ctx.clearRect(0,0,W,H);
     var bg=ctx.createLinearGradient(0,0,0,H);
     bg.addColorStop(0,'#241546');bg.addColorStop(1,'#120a22');
