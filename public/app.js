@@ -102,10 +102,27 @@
   }
 
   /* ---------- feed loading ---------- */
+  var feedEndEl = document.getElementById('feedEnd');
+  var retryDelay = 2000, retryTimer = null;
+  function setFeedStatus(msg, center) {
+    feedEndEl.textContent = msg || '';
+    feedEndEl.classList.toggle('hidden', !msg);
+    feedEndEl.classList.toggle('center', !!center);
+  }
+  function refreshFeedEnd() {
+    if (!slides.length) return;
+    setFeedStatus(nextOffset === null && activeIndex === slides.length - 1 ? L.feedEnd : '', false);
+  }
+  // tapping the status line retries immediately
+  feedEndEl.addEventListener('click', function () { loadMore(); });
+
   function loadMore() {
     if (fetching || nextOffset === null) return Promise.resolve();
     fetching = true;
+    clearTimeout(retryTimer);
+    if (!slides.length) setFeedStatus(L.loading, true);
     return api('/api/feed?offset=' + nextOffset + '&limit=8').then(function (res) {
+      retryDelay = 2000;
       res.games.forEach(function (g) {
         if (games.some(function (x) { return x.id === g.id; })) return;
         var idx = games.length;
@@ -116,11 +133,16 @@
       fetching = false;
       if (activeIndex === -1 && slides.length) activate(0);
       else updateWindow();
-      if (nextOffset === null) {
-        var end = document.getElementById('feedEnd');
-        end.textContent = L.feedEnd;
-      }
-    }).catch(function () { fetching = false; });
+      refreshFeedEnd();
+    }).catch(function () {
+      // the free-tier server sleeps and takes ~30-60s to wake, and the
+      // service worker keeps the shell working offline — keep retrying
+      // instead of leaving a silent black screen
+      fetching = false;
+      if (!slides.length) setFeedStatus(L.feedRetry, true);
+      retryTimer = setTimeout(loadMore, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 15000);
+    });
   }
 
   /* ---------- iframe lifecycle (preload window) ---------- */
@@ -212,6 +234,7 @@
     if (prev >= 0 && slides[prev] && slides[prev].mode === 'record') finishRecording(prev);
     updateWindow();
     maybeGo(i);
+    refreshFeedEnd();
   }
 
   var observer = new IntersectionObserver(function (entries) {
@@ -455,6 +478,7 @@
     slides.forEach(function (s) { observer.unobserve(s.el); });
     feedEl.innerHTML = '';
     games = []; slides = []; activeIndex = -1; nextOffset = 0; fetching = false;
+    clearTimeout(retryTimer); retryDelay = 2000; setFeedStatus('', false);
     feedEl.scrollTop = 0;
     loadMore();
   }

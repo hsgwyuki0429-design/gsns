@@ -1,5 +1,5 @@
 /* GSNS service worker: cache the app shell, pass everything dynamic through. */
-var CACHE = 'gsns-v1';
+var CACHE = 'gsns-v2';
 var SHELL = [
   '/',
   '/styles.css',
