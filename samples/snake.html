@@ -48,8 +48,10 @@
     if(food&&h.x===food.x&&h.y===food.y){score++;placeFood();}
     else snake.pop();
   }
+  var overSent=false;
   function draw(t){
     if(!over){ while(t-lastTick>=TICK){lastTick+=TICK;tick();if(over)break;} }
+    if(over&&!overSent){overSent=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
     var cell=Math.min(W/COLS,H/ROWS),ox=(W-cell*COLS)/2,oy=(H-cell*ROWS)/2;
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle='#0b1622';ctx.fillRect(ox,oy,cell*COLS,cell*ROWS);

@@ -48,7 +48,10 @@
   function draw(t){
     if(prev<0)prev=t;
     acc+=t-prev;prev=t;
-    while(acc>=STEP&&!over){tick();acc-=STEP;if(sim>=DUR)over=true;}
+    while(acc>=STEP&&!over){
+      tick();acc-=STEP;
+      if(sim>=DUR){over=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
+    }
     ctx.clearRect(0,0,W,H);
     var g=ctx.createLinearGradient(0,0,0,H);
     g.addColorStop(0,'#141a3d');g.addColorStop(1,'#070a18');

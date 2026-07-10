@@ -31,7 +31,10 @@
   // timestamp — not by whether a frame happened to render first
   function advance(t){
     if(phase==='result'&&t-phaseT>=(round===0?400:1100)){
-      if(round>=ROUNDS)phase='done';
+      if(round>=ROUNDS){
+        phase='done';
+        try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}
+      }
       else startRound(t);
     }
     if(phase==='wait'&&t>=goAt)phase='go';

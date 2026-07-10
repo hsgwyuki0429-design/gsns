@@ -60,6 +60,7 @@
       '<div class="frame-wrap"></div>' +
       '<div class="spinner"><div class="ring"></div><div>' + L.loading + '</div></div>' +
       '<div class="badge hidden"></div>' +
+      '<div class="swipe-hint hidden"><div class="chev">︿</div><div class="sh-label"></div></div>' +
       '<div class="meta">' +
       '  <div class="title"></div>' +
       '  <div class="author"></div>' +
@@ -71,6 +72,7 @@
       '  <button class="share-btn"><span class="ico">' + ICONS.share + '</span><span>&nbsp;</span></button>' +
       '</div>';
 
+    el.querySelector('.sh-label').textContent = L.swipeNext;
     el.querySelector('.title').textContent = game.title;
     el.querySelector('.author').textContent = '@' + game.author;
     el.querySelector('.plays').textContent = '▶ ' + game.plays;
@@ -157,6 +159,8 @@
     s.iframe = null;
     s.ready = false;
     s.goSent = false;
+    s.el.classList.remove('game-over');
+    s.el.querySelector('.swipe-hint').classList.add('hidden');
     s.el.querySelector('.spinner').classList.remove('off');
     s.el.querySelector('.badge').classList.add('hidden');
   }
@@ -245,8 +249,27 @@
           s.iframe.src = s.iframe.src;
         }, 800);
       }
+    } else if (d.gsns === 'game-over') {
+      // the game announced its end screen: save the run now and let the
+      // player swipe on (the iframe stops eating pointer events)
+      if (s.mode === 'record' && !s.el.classList.contains('game-over')) {
+        s.el.classList.add('game-over');
+        s.el.querySelector('.swipe-hint').classList.remove('hidden');
+        finishRecording(i);
+      }
+    } else if (d.gsns === 'swipe') {
+      // flick relayed by the harness (pointer events never reach us while
+      // the player is inside the sandboxed iframe)
+      if (i === activeIndex && s.mode === 'record') {
+        scrollToSlide(activeIndex + (d.dir === 'down' ? -1 : 1));
+      }
     }
   });
+
+  function scrollToSlide(i) {
+    if (i < 0 || i >= slides.length) return;
+    slides[i].el.scrollIntoView({ behavior: 'smooth' });
+  }
 
   function findSlideByWindow(w) {
     for (var i = 0; i < slides.length; i++) {

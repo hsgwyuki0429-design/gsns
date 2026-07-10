@@ -152,6 +152,22 @@
     });
     window.addEventListener('keydown', onKey, { capture: true, passive: true });
     window.addEventListener('keyup', onKey, { capture: true, passive: true });
+    // fast, long, mostly-vertical flicks double as feed navigation: the
+    // parent page can't see pointer events inside the sandboxed iframe,
+    // so relay the gesture (it is still recorded as game input too)
+    var swX = 0, swY = 0, swT = 0;
+    window.addEventListener('pointerdown', function (e) {
+      if (!e.isTrusted) return;
+      swX = e.clientX; swY = e.clientY; swT = realNow();
+    }, { capture: true, passive: true });
+    window.addEventListener('pointerup', function (e) {
+      if (!e.isTrusted || !swT) return;
+      var dt = realNow() - swT, dx = e.clientX - swX, dy = e.clientY - swY;
+      swT = 0;
+      if (dt < 600 && Math.abs(dy) > window.innerHeight * 0.3 && Math.abs(dy) > 2.2 * Math.abs(dx)) {
+        try { window.parent.postMessage({ gsns: 'swipe', dir: dy < 0 ? 'up' : 'down' }, '*'); } catch (err) { }
+      }
+    }, { capture: true, passive: true });
     realSetInterval(function () { flush(false); }, 1200);
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'hidden') flush(true);
