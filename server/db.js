@@ -111,14 +111,15 @@ if (useSupabaseStorage) {
   fs.mkdirSync(LOCAL_GAMES_DIR, { recursive: true });
 }
 
-async function saveGameFile(file, html) {
+async function saveGameFile(file, html, opts) {
+  const overwrite = !!(opts && opts.overwrite);
   if (!useSupabaseStorage) {
     await fs.promises.writeFile(path.join(LOCAL_GAMES_DIR, file), html, 'utf8');
     return;
   }
   const { error } = await supabase.storage
     .from(BUCKET)
-    .upload(file, Buffer.from(html, 'utf8'), { contentType: 'text/html; charset=utf-8', upsert: false });
+    .upload(file, Buffer.from(html, 'utf8'), { contentType: 'text/html; charset=utf-8', upsert: overwrite });
   if (error) throw new Error('storage upload failed: ' + error.message);
 }
 

@@ -271,24 +271,37 @@ async function seedSamples() {
   const metaPath = path.join(SAMPLES_DIR, 'meta.json');
   if (!fs.existsSync(metaPath)) return;
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-  // idempotent: only insert samples whose title isn't in the DB yet, so new
-  // samples added in later releases show up on existing deployments too
-  const { rows } = await pool.query("SELECT title FROM games WHERE author = 'GSNS'");
-  const have = new Set(rows.map((r) => r.title));
-  let n = 0;
+  // idempotent: insert samples whose title isn't in the DB yet, and refresh
+  // the stored HTML of already-seeded samples when the bundled file changed,
+  // so fixes to sample games reach existing deployments too
+  const { rows } = await pool.query("SELECT id, title, file FROM games WHERE author = 'GSNS'");
+  const have = new Map(rows.map((r) => [r.title, r]));
+  let added = 0, updated = 0;
   for (const s of meta) {
-    if (have.has(s.title)) continue;
     const src = path.join(SAMPLES_DIR, s.file);
     if (!fs.existsSync(src)) continue;
-    const file = crypto.randomUUID() + '.html';
-    await saveGameFile(file, fs.readFileSync(src, 'utf8'));
-    await pool.query(
-      'INSERT INTO games (title, author, file, created_at) VALUES ($1, $2, $3, $4)',
-      [s.title, s.author || 'GSNS', file, Date.now()]
-    );
-    n++;
+    const html = fs.readFileSync(src, 'utf8');
+    const existing = have.get(s.title);
+    if (!existing) {
+      const file = crypto.randomUUID() + '.html';
+      await saveGameFile(file, html);
+      await pool.query(
+        'INSERT INTO games (title, author, file, created_at) VALUES ($1, $2, $3, $4)',
+        [s.title, s.author || 'GSNS', file, Date.now()]
+      );
+      added++;
+      continue;
+    }
+    let current = null;
+    try { current = await getGameFile(existing.file); } catch (e) { /* refetch below overwrites */ }
+    if (current === html) continue;
+    await saveGameFile(existing.file, html, { overwrite: true });
+    // the old recording was captured against the old game code and would
+    // replay incorrectly — drop it so the next viewer records a fresh run
+    await pool.query('DELETE FROM recordings WHERE game_id = $1', [existing.id]);
+    updated++;
   }
-  if (n) console.log(`seeded ${n} sample games`);
+  if (added || updated) console.log(`samples: ${added} added, ${updated} updated`);
 }
 
 /* ---------- boot: schema first, then seed, then listen ---------- */
