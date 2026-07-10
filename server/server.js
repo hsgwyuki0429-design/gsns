@@ -261,7 +261,9 @@ app.get('/game/:id', h(async (req, res) => {
   res.type('html').send(html);
 }));
 
-app.get('/healthz', (req, res) => res.json({ ok: true, storage: storageMode }));
+let dbUp = false;
+ready.then(() => { dbUp = true; });
+app.get('/healthz', (req, res) => res.json({ ok: true, db: dbUp, storage: storageMode }));
 
 // static frontend (after API routes)
 app.use(express.static(PUBLIC_DIR, { maxAge: '1h' }));
@@ -278,42 +280,44 @@ async function seedSamples() {
   const have = new Map(rows.map((r) => [r.title, r]));
   let added = 0, updated = 0;
   for (const s of meta) {
-    const src = path.join(SAMPLES_DIR, s.file);
-    if (!fs.existsSync(src)) continue;
-    const html = fs.readFileSync(src, 'utf8');
-    const existing = have.get(s.title);
-    if (!existing) {
-      const file = crypto.randomUUID() + '.html';
-      await saveGameFile(file, html);
-      await pool.query(
-        'INSERT INTO games (title, author, file, created_at) VALUES ($1, $2, $3, $4)',
-        [s.title, s.author || 'GSNS', file, Date.now()]
-      );
-      added++;
-      continue;
+    try {
+      const src = path.join(SAMPLES_DIR, s.file);
+      if (!fs.existsSync(src)) continue;
+      const html = fs.readFileSync(src, 'utf8');
+      const existing = have.get(s.title);
+      if (!existing) {
+        const file = crypto.randomUUID() + '.html';
+        await saveGameFile(file, html);
+        await pool.query(
+          'INSERT INTO games (title, author, file, created_at) VALUES ($1, $2, $3, $4)',
+          [s.title, s.author || 'GSNS', file, Date.now()]
+        );
+        added++;
+        continue;
+      }
+      let current = null;
+      try { current = await getGameFile(existing.file); } catch (e) { /* refetch below overwrites */ }
+      if (current === html) continue;
+      await saveGameFile(existing.file, html, { overwrite: true });
+      // the old recording was captured against the old game code and would
+      // replay incorrectly — drop it so the next viewer records a fresh run
+      await pool.query('DELETE FROM recordings WHERE game_id = $1', [existing.id]);
+      updated++;
+    } catch (e) {
+      console.error(`sample "${s.title}" seeding failed:`, e.message);
     }
-    let current = null;
-    try { current = await getGameFile(existing.file); } catch (e) { /* refetch below overwrites */ }
-    if (current === html) continue;
-    await saveGameFile(existing.file, html, { overwrite: true });
-    // the old recording was captured against the old game code and would
-    // replay incorrectly — drop it so the next viewer records a fresh run
-    await pool.query('DELETE FROM recordings WHERE game_id = $1', [existing.id]);
-    updated++;
   }
   if (added || updated) console.log(`samples: ${added} added, ${updated} updated`);
 }
 
-/* ---------- boot: schema first, then seed, then listen ---------- */
+/* ---------- boot: listen immediately, init db + samples in background ----------
+ * The site must come up even while the database is unreachable (paused
+ * Supabase project, transient outage): APIs return 500 until `ready`
+ * resolves, and the frontend retries automatically. */
 const PORT = process.env.PORT || 3000;
+const server = app.listen(PORT, () =>
+  console.log(`GSNS listening on :${PORT} (db: postgres, storage: ${storageMode})`));
+process.on('SIGTERM', () => server.close(() => pool.end().then(() => process.exit(0))));
 ready
   .then(seedSamples)
-  .then(() => {
-    const server = app.listen(PORT, () =>
-      console.log(`GSNS listening on :${PORT} (db: postgres, storage: ${storageMode})`));
-    process.on('SIGTERM', () => server.close(() => pool.end().then(() => process.exit(0))));
-  })
-  .catch((e) => {
-    console.error('startup failed:', e);
-    process.exit(1);
-  });
+  .catch((e) => console.error('sample seeding failed:', e));

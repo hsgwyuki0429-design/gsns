@@ -55,7 +55,23 @@ const pool = new Pool({
 });
 
 /* ---------- schema ---------- */
+// Retries forever instead of failing: a paused Supabase project (free tier
+// pauses after a week of inactivity) or a transient outage must not take
+// the site down — APIs return 500 until the database comes back.
 const ready = (async () => {
+  for (let delay = 2000; ; delay = Math.min(delay * 2, 60000)) {
+    try {
+      await initSchema();
+      console.log('database schema ready');
+      return;
+    } catch (e) {
+      console.error(`schema init failed (retrying in ${delay}ms):`, e.message);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+})();
+
+async function initSchema() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS games (
       id         SERIAL PRIMARY KEY,
@@ -89,8 +105,7 @@ const ready = (async () => {
     );
     CREATE INDEX IF NOT EXISTS idx_comments_game ON comments(game_id, id);
   `);
-  console.log('database schema ready');
-})();
+}
 
 /* ---------- game file storage ---------- */
 const useSupabaseStorage = !!process.env.SUPABASE_URL;
