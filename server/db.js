@@ -1,91 +1,114 @@
+/*
+ * Database + game-file storage layer (Supabase edition).
+ *
+ *  - Games/likes/comments/recordings live in PostgreSQL (Supabase Database).
+ *  - Game HTML files live in Supabase Storage (bucket "games") when
+ *    SUPABASE_URL is configured, otherwise on the local filesystem.
+ *
+ * Required env (see .env.example):
+ *   DATABASE_URL          Postgres connection string (Supabase: use the
+ *                         "Transaction pooler" URI, port 6543)
+ *   SUPABASE_URL          https://<project-ref>.supabase.co
+ *   SUPABASE_SERVICE_KEY  service_role key — server-side only, never sent
+ *                         to the browser (anon key cannot write to Storage)
+ */
 const path = require('path');
 const fs = require('fs');
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// PostgreSQL接続（Supabase）
+if (!process.env.DATABASE_URL) {
+  console.error('DATABASE_URL is not set. Copy .env.example to .env and fill it in.');
+  process.exit(1);
+}
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // Supabaseはhttps必須
+  max: 5, // Supabase free-tier pooler friendly
+  ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
 });
 
-// ゲームファイルの保存先：環境変数で LocalFS or Supabase を選択
-const STORAGE_MODE = process.env.STORAGE_MODE || 'local'; // 'local' or 'supabase'
-const LOCAL_GAMES_DIR = process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'games') : path.join(__dirname, '..', 'data', 'games');
-if (STORAGE_MODE === 'local') fs.mkdirSync(LOCAL_GAMES_DIR, { recursive: true });
+/* ---------- schema ---------- */
+const ready = (async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS games (
+      id         SERIAL PRIMARY KEY,
+      title      TEXT NOT NULL,
+      author     TEXT NOT NULL DEFAULT 'anonymous',
+      file       TEXT NOT NULL,
+      plays      INTEGER NOT NULL DEFAULT 0,
+      created_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS recordings (
+      game_id    INTEGER PRIMARY KEY REFERENCES games(id) ON DELETE CASCADE,
+      seed       INTEGER NOT NULL,
+      speed      REAL NOT NULL DEFAULT 2,
+      duration   REAL NOT NULL,
+      events     TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS likes (
+      game_id    INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      PRIMARY KEY (game_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS comments (
+      id         SERIAL PRIMARY KEY,
+      game_id    INTEGER NOT NULL REFERENCES games(id) ON DELETE CASCADE,
+      user_id    TEXT NOT NULL,
+      name       TEXT NOT NULL DEFAULT '',
+      text       TEXT NOT NULL,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_comments_game ON comments(game_id, id);
+  `);
+  console.log('database schema ready');
+})();
 
-// テーブル作成（初回接続時に自動実行）
-async function initDb() {
-  const client = await pool.connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS games (
-        id         SERIAL PRIMARY KEY,
-        title      VARCHAR(255) NOT NULL,
-        author     VARCHAR(255) NOT NULL DEFAULT 'anonymous',
-        file       VARCHAR(255) NOT NULL,
-        plays      INTEGER NOT NULL DEFAULT 0,
-        created_at BIGINT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS recordings (
-        game_id    INTEGER PRIMARY KEY REFERENCES games(id),
-        seed       INTEGER NOT NULL,
-        speed      FLOAT NOT NULL DEFAULT 2,
-        duration   FLOAT NOT NULL,
-        events     TEXT NOT NULL,
-        created_at BIGINT NOT NULL
-      );
-      CREATE TABLE IF NOT EXISTS likes (
-        game_id INTEGER NOT NULL REFERENCES games(id),
-        user_id VARCHAR(255) NOT NULL,
-        created_at BIGINT NOT NULL,
-        PRIMARY KEY (game_id, user_id)
-      );
-      CREATE TABLE IF NOT EXISTS comments (
-        id         SERIAL PRIMARY KEY,
-        game_id    INTEGER NOT NULL REFERENCES games(id),
-        user_id    VARCHAR(255) NOT NULL,
-        name       VARCHAR(255) NOT NULL DEFAULT '',
-        text       TEXT NOT NULL,
-        created_at BIGINT NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS idx_comments_game ON comments(game_id, id);
-    `);
-    console.log('Database initialized');
-  } finally {
-    client.release();
+/* ---------- game file storage ---------- */
+const useSupabaseStorage = !!process.env.SUPABASE_URL;
+const BUCKET = process.env.SUPABASE_BUCKET || 'games';
+const LOCAL_GAMES_DIR = path.join(process.env.DATA_DIR || path.join(__dirname, '..', 'data'), 'games');
+
+let supabase = null;
+if (useSupabaseStorage) {
+  if (!process.env.SUPABASE_SERVICE_KEY) {
+    console.error('SUPABASE_URL is set but SUPABASE_SERVICE_KEY is missing.');
+    process.exit(1);
   }
+  const { createClient } = require('@supabase/supabase-js');
+  supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false },
+  });
+} else {
+  fs.mkdirSync(LOCAL_GAMES_DIR, { recursive: true });
 }
-initDb().catch(console.error);
 
-// ゲームファイルの保存/取得ヘルパー
 async function saveGameFile(file, html) {
-  if (STORAGE_MODE === 'local') {
-    fs.writeFileSync(path.join(LOCAL_GAMES_DIR, file), html, 'utf8');
-  } else {
-    // Supabase Storage へアップロード
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-    await supabase.storage.from('games').upload(file, Buffer.from(html), { upsert: true });
+  if (!useSupabaseStorage) {
+    await fs.promises.writeFile(path.join(LOCAL_GAMES_DIR, file), html, 'utf8');
+    return;
   }
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(file, Buffer.from(html, 'utf8'), { contentType: 'text/html; charset=utf-8', upsert: false });
+  if (error) throw new Error('storage upload failed: ' + error.message);
 }
 
 async function getGameFile(file) {
-  if (STORAGE_MODE === 'local') {
-    return fs.readFileSync(path.join(LOCAL_GAMES_DIR, file), 'utf8');
-  } else {
-    const { createClient } = require('@supabase/supabase-js');
-    const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-    const { data, error } = await supabase.storage.from('games').download(file);
-    if (error) throw new Error('File not found: ' + file);
-    return data.text();
+  if (!useSupabaseStorage) {
+    return fs.promises.readFile(path.join(LOCAL_GAMES_DIR, file), 'utf8');
   }
+  const { data, error } = await supabase.storage.from(BUCKET).download(file);
+  if (error) { const e = new Error('storage download failed: ' + error.message); e.notFound = true; throw e; }
+  return data.text();
 }
 
 module.exports = {
-  db: pool,
+  pool,
+  ready,
   saveGameFile,
   getGameFile,
-  LOCAL_GAMES_DIR,
-  STORAGE_MODE,
+  storageMode: useSupabaseStorage ? 'supabase' : 'local',
 };

@@ -1,11 +1,13 @@
+/* GSNS server — Supabase edition (PostgreSQL + Supabase Storage). */
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const express = require('express');
-const { db, GAMES_DIR } = require('./db');
+const { pool, ready, saveGameFile, getGameFile, storageMode } = require('./db');
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1); // Render/most PaaS sit behind one proxy
 app.use(express.json({ limit: '4mb' }));
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
@@ -16,49 +18,24 @@ const MAX_EVENTS = 30000;
 const MAX_RECORDING_MS = 90000;
 const REPLAY_SPEED = 2;
 
-// ---------- prepared statements ----------
-const q = {
-  countGames: db.prepare('SELECT COUNT(*) AS n FROM games'),
-  insertGame: db.prepare('INSERT INTO games (title, author, file, created_at) VALUES (?, ?, ?, ?)'),
-  getGame: db.prepare('SELECT * FROM games WHERE id = ?'),
-  addPlay: db.prepare('UPDATE games SET plays = plays + 1 WHERE id = ?'),
-  feed: db.prepare(`
-    SELECT g.id, g.title, g.author, g.plays, g.created_at,
-      (SELECT COUNT(*) FROM likes l WHERE l.game_id = g.id) AS likes,
-      (SELECT COUNT(*) FROM comments c WHERE c.game_id = g.id) AS comments,
-      (SELECT COUNT(*) FROM likes l2 WHERE l2.game_id = g.id AND l2.user_id = ?) AS liked,
-      (SELECT COUNT(*) FROM recordings r WHERE r.game_id = g.id) AS has_rec,
-      (SELECT duration FROM recordings r WHERE r.game_id = g.id) AS rec_duration
-    FROM games g ORDER BY g.id DESC LIMIT ? OFFSET ?`),
-  feedOne: db.prepare(`
-    SELECT g.id, g.title, g.author, g.plays, g.created_at,
-      (SELECT COUNT(*) FROM likes l WHERE l.game_id = g.id) AS likes,
-      (SELECT COUNT(*) FROM comments c WHERE c.game_id = g.id) AS comments,
-      (SELECT COUNT(*) FROM likes l2 WHERE l2.game_id = g.id AND l2.user_id = ?) AS liked,
-      (SELECT COUNT(*) FROM recordings r WHERE r.game_id = g.id) AS has_rec,
-      (SELECT duration FROM recordings r WHERE r.game_id = g.id) AS rec_duration
-    FROM games g WHERE g.id = ?`),
-  getRecording: db.prepare('SELECT seed, speed, duration, events FROM recordings WHERE game_id = ?'),
-  hasRecording: db.prepare('SELECT 1 FROM recordings WHERE game_id = ?'),
-  insertRecording: db.prepare(
-    'INSERT INTO recordings (game_id, seed, speed, duration, events, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-  ),
-  getLike: db.prepare('SELECT 1 FROM likes WHERE game_id = ? AND user_id = ?'),
-  addLike: db.prepare('INSERT OR IGNORE INTO likes (game_id, user_id, created_at) VALUES (?, ?, ?)'),
-  delLike: db.prepare('DELETE FROM likes WHERE game_id = ? AND user_id = ?'),
-  countLikes: db.prepare('SELECT COUNT(*) AS n FROM likes WHERE game_id = ?'),
-  listComments: db.prepare(
-    'SELECT id, name, text, created_at FROM comments WHERE game_id = ? ORDER BY id DESC LIMIT 200'
-  ),
-  addComment: db.prepare(
-    'INSERT INTO comments (game_id, user_id, name, text, created_at) VALUES (?, ?, ?, ?, ?)'
-  ),
-};
+/* ---------- helpers ---------- */
+const FEED_SELECT = `
+  SELECT g.id, g.title, g.author, g.plays, g.created_at,
+    (SELECT COUNT(*) FROM likes l WHERE l.game_id = g.id)::int AS likes,
+    (SELECT COUNT(*) FROM comments c WHERE c.game_id = g.id)::int AS comments,
+    (SELECT COUNT(*) FROM likes l2 WHERE l2.game_id = g.id AND l2.user_id = $1)::int AS liked,
+    EXISTS (SELECT 1 FROM recordings r WHERE r.game_id = g.id) AS has_rec,
+    (SELECT duration FROM recordings r WHERE r.game_id = g.id) AS rec_duration
+  FROM games g`;
 
-// ---------- helpers ----------
 function userId(req) {
   const u = String(req.get('x-gsns-user') || '');
   return /^[\w-]{8,64}$/.test(u) ? u : '';
+}
+
+function gameId(req) {
+  const id = parseInt(req.params.id, 10);
+  return Number.isInteger(id) && id > 0 ? id : null;
 }
 
 function gameRow(r) {
@@ -67,13 +44,21 @@ function gameRow(r) {
     title: r.title,
     author: r.author,
     plays: r.plays,
-    createdAt: r.created_at,
+    createdAt: Number(r.created_at),
     likes: r.likes,
     comments: r.comments,
-    liked: !!r.liked,
-    hasRecording: !!r.has_rec,
+    liked: r.liked > 0,
+    hasRecording: r.has_rec,
     duration: r.rec_duration || null,
   };
+}
+
+// wraps async handlers so rejections become 500s instead of hanging
+function h(fn) {
+  return (req, res) => fn(req, res).catch((e) => {
+    console.error(e);
+    if (!res.headersSent) res.status(500).json({ error: 'server error' });
+  });
 }
 
 // naive per-IP upload rate limit (20/hour)
@@ -87,27 +72,39 @@ function allowUpload(ip) {
   return true;
 }
 
-// ---------- API ----------
-app.get('/api/feed', (req, res) => {
+// small in-memory cache for game HTML so replays/loops don't hit
+// Supabase Storage on every view (keeps free-tier egress low)
+const htmlCache = new Map(); // file -> html
+function cacheGameHtml(file, html) {
+  htmlCache.set(file, html);
+  if (htmlCache.size > 50) htmlCache.delete(htmlCache.keys().next().value);
+}
+
+/* ---------- API ---------- */
+app.get('/api/feed', h(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit) || 8, 1), 20);
   const offset = Math.max(parseInt(req.query.offset) || 0, 0);
-  const rows = q.feed.all(userId(req), limit + 1, offset);
+  const { rows } = await pool.query(
+    `${FEED_SELECT} ORDER BY g.id DESC LIMIT $2 OFFSET $3`,
+    [userId(req), limit + 1, offset]
+  );
   const more = rows.length > limit;
   res.json({
     games: rows.slice(0, limit).map(gameRow),
     nextOffset: more ? offset + limit : null,
   });
-});
+}));
 
-app.get('/api/games/:id', (req, res) => {
-  const row = q.feedOne.get(userId(req), req.params.id);
-  if (!row) return res.status(404).json({ error: 'not found' });
-  res.json(gameRow(row));
-});
+app.get('/api/games/:id', h(async (req, res) => {
+  const id = gameId(req);
+  if (!id) return res.status(404).json({ error: 'not found' });
+  const { rows } = await pool.query(`${FEED_SELECT} WHERE g.id = $2`, [userId(req), id]);
+  if (!rows[0]) return res.status(404).json({ error: 'not found' });
+  res.json(gameRow(rows[0]));
+}));
 
-app.post('/api/games', (req, res) => {
-  const ip = req.ip || 'unknown';
-  if (!allowUpload(ip)) return res.status(429).json({ error: 'rate limited' });
+app.post('/api/games', h(async (req, res) => {
+  if (!allowUpload(req.ip || 'unknown')) return res.status(429).json({ error: 'rate limited' });
   const { title, author, html } = req.body || {};
   if (typeof title !== 'string' || !title.trim() || title.trim().length > 60)
     return res.status(400).json({ error: 'invalid title' });
@@ -117,28 +114,38 @@ app.post('/api/games', (req, res) => {
     return res.status(413).json({ error: 'html too large (max 2MB)' });
   const auth = (typeof author === 'string' && author.trim() ? author.trim() : 'anonymous').slice(0, 30);
   const file = crypto.randomUUID() + '.html';
-  fs.writeFileSync(path.join(GAMES_DIR, file), html, 'utf8');
-  const info = q.insertGame.run(title.trim(), auth, file, Date.now());
-  const row = q.feedOne.get(userId(req), info.lastInsertRowid);
-  res.status(201).json(gameRow(row));
-});
+  await saveGameFile(file, html); // throws on Storage failure → 500, no orphan DB row
+  cacheGameHtml(file, html);
+  const ins = await pool.query(
+    'INSERT INTO games (title, author, file, created_at) VALUES ($1, $2, $3, $4) RETURNING id',
+    [title.trim(), auth, file, Date.now()]
+  );
+  const { rows } = await pool.query(`${FEED_SELECT} WHERE g.id = $2`, [userId(req), ins.rows[0].id]);
+  res.status(201).json(gameRow(rows[0]));
+}));
 
-app.post('/api/games/:id/view', (req, res) => {
-  q.addPlay.run(req.params.id);
+app.post('/api/games/:id/view', h(async (req, res) => {
+  const id = gameId(req);
+  if (id) await pool.query('UPDATE games SET plays = plays + 1 WHERE id = $1', [id]);
   res.json({ ok: true });
-});
+}));
 
-app.get('/api/games/:id/recording', (req, res) => {
-  const r = q.getRecording.get(req.params.id);
-  if (!r) return res.status(404).json({ error: 'no recording yet' });
+app.get('/api/games/:id/recording', h(async (req, res) => {
+  const id = gameId(req);
+  if (!id) return res.status(404).json({ error: 'not found' });
+  const { rows } = await pool.query(
+    'SELECT seed, speed, duration, events FROM recordings WHERE game_id = $1', [id]);
+  if (!rows[0]) return res.status(404).json({ error: 'no recording yet' });
+  const r = rows[0];
   res.json({ seed: r.seed, speed: r.speed, duration: r.duration, events: JSON.parse(r.events) });
-});
+}));
 
-// First submitted recording wins; later ones get 409.
-app.post('/api/games/:id/recording', (req, res) => {
-  const g = q.getGame.get(req.params.id);
-  if (!g) return res.status(404).json({ error: 'not found' });
-  if (q.hasRecording.get(g.id)) return res.status(409).json({ error: 'already recorded' });
+// First submitted recording wins; later ones get 409 (unique game_id).
+app.post('/api/games/:id/recording', h(async (req, res) => {
+  const id = gameId(req);
+  if (!id) return res.status(404).json({ error: 'not found' });
+  const game = await pool.query('SELECT 1 FROM games WHERE id = $1', [id]);
+  if (!game.rows[0]) return res.status(404).json({ error: 'not found' });
 
   const { seed, duration, events } = req.body || {};
   if (!Number.isFinite(seed)) return res.status(400).json({ error: 'invalid seed' });
@@ -148,8 +155,7 @@ app.post('/api/games/:id/recording', (req, res) => {
   const clean = [];
   for (const e of events) {
     if (!e || !Number.isFinite(e.t) || typeof e.k !== 'string') continue;
-    const t = Math.max(0, Math.min(Math.round(e.t), MAX_RECORDING_MS));
-    const o = { t, k: e.k.slice(0, 16) };
+    const o = { t: Math.max(0, Math.min(Math.round(e.t), MAX_RECORDING_MS)), k: e.k.slice(0, 16) };
     if (Number.isFinite(e.x)) o.x = Math.max(0, Math.min(+e.x, 1));
     if (Number.isFinite(e.y)) o.y = Math.max(0, Math.min(+e.y, 1));
     if (Number.isFinite(e.b)) o.b = e.b | 0;
@@ -162,61 +168,80 @@ app.post('/api/games/:id/recording', (req, res) => {
   const json = JSON.stringify(clean);
   if (json.length > 3 * 1024 * 1024) return res.status(413).json({ error: 'recording too large' });
   try {
-    q.insertRecording.run(g.id, seed | 0, REPLAY_SPEED, dur, json, Date.now());
+    await pool.query(
+      'INSERT INTO recordings (game_id, seed, speed, duration, events, created_at) VALUES ($1, $2, $3, $4, $5, $6)',
+      [id, seed | 0, REPLAY_SPEED, dur, json, Date.now()]
+    );
   } catch (e) {
-    return res.status(409).json({ error: 'already recorded' });
+    if (e.code === '23505') return res.status(409).json({ error: 'already recorded' });
+    throw e;
   }
   res.status(201).json({ ok: true });
-});
+}));
 
-app.post('/api/games/:id/like', (req, res) => {
+app.post('/api/games/:id/like', h(async (req, res) => {
   const uid = userId(req);
   if (!uid) return res.status(400).json({ error: 'missing user id' });
-  const g = q.getGame.get(req.params.id);
-  if (!g) return res.status(404).json({ error: 'not found' });
-  let liked;
-  if (q.getLike.get(g.id, uid)) {
-    q.delLike.run(g.id, uid);
-    liked = false;
-  } else {
-    q.addLike.run(g.id, uid, Date.now());
+  const id = gameId(req);
+  if (!id) return res.status(404).json({ error: 'not found' });
+  const del = await pool.query('DELETE FROM likes WHERE game_id = $1 AND user_id = $2', [id, uid]);
+  let liked = false;
+  if (del.rowCount === 0) {
+    const game = await pool.query('SELECT 1 FROM games WHERE id = $1', [id]);
+    if (!game.rows[0]) return res.status(404).json({ error: 'not found' });
+    await pool.query(
+      'INSERT INTO likes (game_id, user_id, created_at) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
+      [id, uid, Date.now()]
+    );
     liked = true;
   }
-  res.json({ liked, likes: q.countLikes.get(g.id).n });
-});
+  const cnt = await pool.query('SELECT COUNT(*)::int AS n FROM likes WHERE game_id = $1', [id]);
+  res.json({ liked, likes: cnt.rows[0].n });
+}));
 
-app.get('/api/games/:id/comments', (req, res) => {
+app.get('/api/games/:id/comments', h(async (req, res) => {
+  const id = gameId(req);
+  if (!id) return res.status(404).json({ error: 'not found' });
+  const { rows } = await pool.query(
+    'SELECT id, name, text, created_at FROM comments WHERE game_id = $1 ORDER BY id DESC LIMIT 200', [id]);
   res.json({
-    comments: q.listComments.all(req.params.id).map((c) => ({
-      id: c.id,
-      name: c.name,
-      text: c.text,
-      createdAt: c.created_at,
-    })),
+    comments: rows.map((c) => ({ id: c.id, name: c.name, text: c.text, createdAt: Number(c.created_at) })),
   });
-});
+}));
 
-app.post('/api/games/:id/comments', (req, res) => {
+app.post('/api/games/:id/comments', h(async (req, res) => {
   const uid = userId(req);
   if (!uid) return res.status(400).json({ error: 'missing user id' });
-  const g = q.getGame.get(req.params.id);
-  if (!g) return res.status(404).json({ error: 'not found' });
+  const id = gameId(req);
+  if (!id) return res.status(404).json({ error: 'not found' });
+  const game = await pool.query('SELECT 1 FROM games WHERE id = $1', [id]);
+  if (!game.rows[0]) return res.status(404).json({ error: 'not found' });
   const text = String((req.body || {}).text || '').trim().slice(0, 500);
   if (!text) return res.status(400).json({ error: 'empty comment' });
   const name = String((req.body || {}).name || '').trim().slice(0, 30);
-  const info = q.addComment.run(g.id, uid, name, text, Date.now());
-  res.status(201).json({ id: info.lastInsertRowid, name, text, createdAt: Date.now() });
-});
+  const ins = await pool.query(
+    'INSERT INTO comments (game_id, user_id, name, text, created_at) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at',
+    [id, uid, name, text, Date.now()]
+  );
+  res.status(201).json({ id: ins.rows[0].id, name, text, createdAt: Number(ins.rows[0].created_at) });
+}));
 
-// ---------- game page (harness injected, served into a sandboxed iframe) ----------
-app.get('/game/:id', (req, res) => {
-  const g = q.getGame.get(req.params.id);
-  if (!g) return res.status(404).send('not found');
-  let html;
-  try {
-    html = fs.readFileSync(path.join(GAMES_DIR, g.file), 'utf8');
-  } catch (e) {
-    return res.status(404).send('not found');
+/* ---------- game page (harness injected, served into a sandboxed iframe) ---------- */
+app.get('/game/:id', h(async (req, res) => {
+  const id = gameId(req);
+  if (!id) return res.status(404).send('not found');
+  const { rows } = await pool.query('SELECT file FROM games WHERE id = $1', [id]);
+  if (!rows[0]) return res.status(404).send('not found');
+  const file = rows[0].file;
+  let html = htmlCache.get(file);
+  if (html === undefined) {
+    try {
+      html = await getGameFile(file);
+    } catch (e) {
+      if (e.notFound || e.code === 'ENOENT') return res.status(404).send('not found');
+      throw e;
+    }
+    cacheGameHtml(file, html);
   }
   const mode = req.query.mode === 'replay' ? 'replay' : 'record';
   const seed = (parseInt(req.query.seed) || 1) | 0;
@@ -234,17 +259,17 @@ app.get('/game/:id', (req, res) => {
   }
   res.set('Cache-Control', 'private, max-age=120');
   res.type('html').send(html);
-});
+}));
 
-app.get('/healthz', (req, res) => res.json({ ok: true }));
+app.get('/healthz', (req, res) => res.json({ ok: true, storage: storageMode }));
 
 // static frontend (after API routes)
 app.use(express.static(PUBLIC_DIR, { maxAge: '1h' }));
-// SPA-ish fallback: deep links like /?g=123 use query params, so only / needs serving.
 
-// ---------- seed sample games on first boot ----------
-function seedSamples() {
-  if (q.countGames.get().n > 0) return;
+/* ---------- seed sample games on first boot ---------- */
+async function seedSamples() {
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM games');
+  if (rows[0].n > 0) return;
   const metaPath = path.join(SAMPLES_DIR, 'meta.json');
   if (!fs.existsSync(metaPath)) return;
   const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
@@ -252,12 +277,25 @@ function seedSamples() {
     const src = path.join(SAMPLES_DIR, s.file);
     if (!fs.existsSync(src)) continue;
     const file = crypto.randomUUID() + '.html';
-    fs.copyFileSync(src, path.join(GAMES_DIR, file));
-    q.insertGame.run(s.title, s.author || 'GSNS', file, Date.now());
+    await saveGameFile(file, fs.readFileSync(src, 'utf8'));
+    await pool.query(
+      'INSERT INTO games (title, author, file, created_at) VALUES ($1, $2, $3, $4)',
+      [s.title, s.author || 'GSNS', file, Date.now()]
+    );
   }
   console.log(`seeded ${meta.length} sample games`);
 }
-seedSamples();
 
+/* ---------- boot: schema first, then seed, then listen ---------- */
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`GSNS listening on :${PORT}`));
+ready
+  .then(seedSamples)
+  .then(() => {
+    const server = app.listen(PORT, () =>
+      console.log(`GSNS listening on :${PORT} (db: postgres, storage: ${storageMode})`));
+    process.on('SIGTERM', () => server.close(() => pool.end().then(() => process.exit(0))));
+  })
+  .catch((e) => {
+    console.error('startup failed:', e);
+    process.exit(1);
+  });

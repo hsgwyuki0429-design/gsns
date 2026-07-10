@@ -16,14 +16,35 @@ TikTokのような縦スワイプフィードに、動画ではなく**遊べる
 - PWA: ホーム画面に追加(Android/デスクトップはインストールプロンプト、iOSはSafariの共有→ホーム画面に追加)
 - 日本語/英語UI(端末の言語で自動切替)
 
+## 構成
+
+- **データ**(ゲーム情報・いいね・コメント・リプレイ記録): Supabase **Database**(PostgreSQL)
+- **ゲームHTMLファイル**: Supabase **Storage**(バケット `games`)。`SUPABASE_URL` 未設定時はローカルの `data/games/` に保存(開発用)
+- **サーバー**: Node.js + Express(Render等の無料枠で稼働)
+
+Supabaseにデータを置くため、**サーバーが再起動してもデータは消えません**(Render無料枠でもOK)。
+
 ## 起動方法
 
 ```bash
 npm install
-npm start          # http://localhost:3000
+cp .env.example .env   # DATABASE_URL 等を記入(下記・READMEのSupabase手順参照)
+npm start              # http://localhost:3000
 ```
 
-初回起動時にサンプルゲーム3本が自動投入されます。データは `data/`(SQLite + ゲームHTML)に保存されます。
+初回起動時にテーブルが自動作成され、サンプルゲーム3本が自動投入されます。
+
+### 必要な環境変数(.env)
+
+| 変数 | 取得場所 |
+|---|---|
+| `DATABASE_URL` | Supabase → 「Connect」→ Transaction pooler のURI(パスワードを埋める) |
+| `SUPABASE_URL` | Supabase → Project Settings → Data API → Project URL |
+| `SUPABASE_SERVICE_KEY` | Supabase → Project Settings → API Keys → `service_role`(**秘密**) |
+
+Supabase側の事前準備は2つだけ:
+1. プロジェクトを作成(リージョンは Northeast Asia (Tokyo) 推奨)
+2. Storage でバケット **`games`** を作成(Privateのままで良い)
 
 ## リプレイの仕組み
 
@@ -50,21 +71,21 @@ npm start          # http://localhost:3000
 
 アップロードされたゲームは `sandbox="allow-scripts allow-pointer-lock"` の iframe(**allow-same-origin なし** = opaque origin)で実行され、本体ページ・Cookie・localStorage にアクセスできません。ただし**コンテンツのモデレーション(不適切な内容の通報・削除)は未実装**なので、公開運用の前に追加してください。
 
-## デプロイ(できる限り無料で)
+## デプロイ(無料構成)
 
-Node + SQLite の単一プロセスなので、ほぼどこでも動きます。
+**Render Free + Supabase Free = 月0円でデータ永続**の構成です。
 
-| 選択肢 | 費用 | 注意点 |
-|---|---|---|
-| [Render](https://render.com) Free | 無料 | 15分でスリープ、**ディスクは揮発**(再起動でデータ消滅)。有料$7/moでディスク永続化 |
-| [Fly.io](https://fly.io) | ほぼ無料 | 小容量ボリュームで永続化可能 |
-| 格安VPS | 数百円/月 | 完全に永続。`DATA_DIR` を任意のパスに |
+1. Supabaseでプロジェクト作成 + バケット `games` 作成(上記)
+2. [Render](https://render.com) → New → Web Service → このリポジトリを接続
+   (`render.yaml` 同梱。Build: `npm install` / Start: `npm start`)
+3. RenderのEnvironmentタブで `DATABASE_URL` / `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` を設定
 
-`render.yaml` を同梱しています(Renderにリポジトリを接続するだけでデプロイされます)。
+| 無料枠の制限 | 内容 |
+|---|---|
+| Render Free | 15分アクセスがないとスリープ(次のアクセスで数十秒の起床待ち) |
+| Supabase Free | DB 500MB / Storage 1GB / 帯域 5GB/月。**1週間アクセスがないとプロジェクトが一時停止**(ダッシュボードから再開可) |
 
-環境変数: `PORT`(既定 3000)、`DATA_DIR`(既定 `./data`)
-
-> **正直な注意点:** 完全無料の枠では「データの永続化」が最大の壁です。試験公開はRender Freeで十分ですが、本格運用ではデータベースだけ外部の無料枠(Supabase/Turso等)に移すか、月数百円のディスク/VPSが現実的です。
+> ゲーム1本平均100KBなら Storage 1GB ≒ 約1万本。リプレイはJSONでDB側なので軽量です。ユーザーが増えたら Supabase Pro ($25/mo) か帯域の安い構成へ。
 
 ## 既知の制限
 

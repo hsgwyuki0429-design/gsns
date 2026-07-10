@@ -5,9 +5,16 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
+    healthCheckPath: /healthz
     envVars:
       - key: NODE_VERSION
         value: "22"
-    # Note: the free plan has no persistent disk — uploaded games and
-    # recordings are lost on redeploy/restart. For real use, switch to a
-    # paid plan and mount a disk at /var/data, then set DATA_DIR=/var/data.
+      # Set these three in the Render dashboard (Environment tab):
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+    # With Supabase holding all data (Postgres + Storage), the free plan's
+    # ephemeral disk doesn't matter — restarts lose nothing.
