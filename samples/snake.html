@@ -16,6 +16,28 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
+  function crash(){sfx(280,0.45,'sawtooth',0.15,70);}
   var COLS=15,ROWS=22,TICK=140;
   var snake=[{x:7,y:14},{x:7,y:15},{x:7,y:16}];
   var dir={x:0,y:-1},nextDir={x:0,y:-1},food=null,score=0,over=false,lastTick=0;
@@ -45,13 +67,13 @@
     if(h.x<0||h.x>=COLS||h.y<0||h.y>=ROWS){over=true;return;}
     for(var i=0;i<snake.length-1;i++)if(snake[i].x===h.x&&snake[i].y===h.y){over=true;return;}
     snake.unshift(h);
-    if(food&&h.x===food.x&&h.y===food.y){score++;placeFood();}
+    if(food&&h.x===food.x&&h.y===food.y){score++;placeFood();sfx(660,0.08,'square',0.12,920);}
     else snake.pop();
   }
   var overSent=false;
   function draw(t){
     if(!over){ while(t-lastTick>=TICK){lastTick+=TICK;tick();if(over)break;} }
-    if(over&&!overSent){overSent=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
+    if(over&&!overSent){overSent=true;crash();try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
     var cell=Math.min(W/COLS,H/ROWS),ox=(W-cell*COLS)/2,oy=(H-cell*ROWS)/2;
     ctx.clearRect(0,0,W,H);
     ctx.fillStyle='#0b1622';ctx.fillRect(ox,oy,cell*COLS,cell*ROWS);

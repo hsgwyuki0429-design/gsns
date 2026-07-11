@@ -16,6 +16,28 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
+  function crash(){sfx(280,0.45,'sawtooth',0.15,70);}
   var DUR=30000,STEP=1000/120;
   var items=[],score=0,over=false,bx=0.5,nextDrop=500,acc=0,prev=-1,sim=0,flash=0;
   function onPoint(e){bx=Math.min(1,Math.max(0,e.clientX/W));}
@@ -38,8 +60,8 @@
       var it=items[i];
       it.y+=it.v*STEP;
       if(it.y>=by-0.02&&it.y<=by+0.05&&Math.abs(it.x-bx)<bw*0.5+0.035){
-        if(it.bad){score=Math.max(0,score-3);flash=sim;}
-        else score++;
+        if(it.bad){score=Math.max(0,score-3);flash=sim;sfx(140,0.28,'sawtooth',0.15,70);}
+        else{score++;sfx(940,0.09,'sine',0.14,1500);}
         items.splice(i,1);continue;
       }
       if(it.y>1.1)items.splice(i,1);
@@ -50,7 +72,7 @@
     acc+=t-prev;prev=t;
     while(acc>=STEP&&!over){
       tick();acc-=STEP;
-      if(sim>=DUR){over=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
+      if(sim>=DUR){over=true;jingle();try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
     }
     ctx.clearRect(0,0,W,H);
     var g=ctx.createLinearGradient(0,0,0,H);
