@@ -59,6 +59,7 @@
     el.innerHTML =
       '<div class="frame-wrap"></div>' +
       '<div class="spinner"><div class="ring"></div><div>' + L.loading + '</div></div>' +
+      '<div class="load-error hidden">' + L.gameUnavailable + '</div>' +
       '<div class="badge hidden"></div>' +
       '<div class="swipe-hint hidden"><div class="chev">︿</div><div class="sh-label"></div></div>' +
       '<div class="meta">' +
@@ -83,6 +84,12 @@
     el.querySelector('.like-btn').addEventListener('click', function () { toggleLike(index); });
     el.querySelector('.comment-btn').addEventListener('click', function () { openComments(index); });
     el.querySelector('.share-btn').addEventListener('click', function () { share(game); });
+    // broken game: tap the error to reload it
+    el.querySelector('.load-error').addEventListener('click', function () {
+      destroyFrame(index);
+      ensureFrame(index);
+      if (index === activeIndex) { maybeGo(index); armWatchdog(index); }
+    });
 
     feedEl.appendChild(el);
     observer.observe(el);
@@ -162,24 +169,33 @@
     s.el.querySelector('.frame-wrap').appendChild(iframe);
     s.iframe = iframe;
     s.el.classList.toggle('replaying', mode === 'replay');
-    if (mode === 'replay' && !s.recFetch) {
-      s.recFetch = api('/api/games/' + s.game.id + '/recording').then(function (r) {
-        s.recording = r;
-        maybeGo(i);
-      }).catch(function (err) {
-        // recording vanished (e.g. sample refresh dropped it): this viewer
-        // becomes the new first player instead of staring at a spinner
-        if (err.status === 404 && s.iframe) {
-          s.game.hasRecording = false;
-          destroyFrame(i);
-          ensureFrame(i);
-          if (i === activeIndex) maybeGo(i);
-        }
-      });
-    }
+    if (mode === 'replay' && !s.recFetch) startRecFetch(i);
     if (mode === 'record') {
       s.session = { events: [], lastVt: 0, saved: false, posted: false };
     }
+  }
+
+  function startRecFetch(i) {
+    var s = slides[i];
+    s.recFetch = api('/api/games/' + s.game.id + '/recording').then(function (r) {
+      s.recording = r;
+      maybeGo(i);
+    }).catch(function (err) {
+      if (err.status === 404 && s.iframe) {
+        // recording vanished (e.g. sample refresh dropped it): this viewer
+        // becomes the new first player instead of staring at a spinner
+        s.game.hasRecording = false;
+        destroyFrame(i);
+        ensureFrame(i);
+        if (i === activeIndex) maybeGo(i);
+      } else {
+        // transient failure (sleeping server): keep retrying while visible
+        s.recFetch = null;
+        setTimeout(function () {
+          if (s.iframe && s.mode === 'replay' && !s.recording && !s.recFetch) startRecFetch(i);
+        }, 3000);
+      }
+    });
   }
 
   function destroyFrame(i) {
@@ -190,11 +206,36 @@
     s.iframe = null;
     s.ready = false;
     s.goSent = false;
+    clearTimeout(s.watchdog);
     if (!s.recording) s.recFetch = null; // failed fetch: retry on next visit
-    s.el.classList.remove('game-over');
+    s.el.classList.remove('game-over', 'playing', 'broken');
     s.el.querySelector('.swipe-hint').classList.add('hidden');
+    s.el.querySelector('.load-error').classList.add('hidden');
     s.el.querySelector('.spinner').classList.remove('off');
     s.el.querySelector('.badge').classList.add('hidden');
+  }
+
+  /* a game that never becomes ready (missing file, crashed script, bad HTML)
+     must not leave the viewer on an eternal spinner — show an error and give
+     the touch surface back to the feed */
+  function markBroken(i) {
+    var s = slides[i];
+    if (!s || !s.iframe || s.ready) return;
+    clearTimeout(s.watchdog);
+    s.el.classList.add('broken');
+    s.el.querySelector('.spinner').classList.add('off');
+    s.el.querySelector('.load-error').classList.remove('hidden');
+  }
+
+  function armWatchdog(i) {
+    var s = slides[i];
+    if (!s || !s.iframe || s.goSent) return;
+    clearTimeout(s.watchdog);
+    s.watchdog = setTimeout(function () {
+      if (i !== activeIndex || !s.iframe || s.goSent) return;
+      if (!s.ready) markBroken(i);
+      else armWatchdog(i); // ready but still waiting on the recording fetch
+    }, 12000);
   }
 
   function updateWindow() {
@@ -224,6 +265,9 @@
     if (s.mode === 'record') {
       badge.classList.add('live');
       badge.textContent = L.live;
+      // while the run is live the game owns the whole screen: fade the action
+      // rail out of the way so its buttons don't steal taps from the game
+      s.el.classList.add('playing');
       s.session.startedAt = Date.now();
       s.session.capTimer = setTimeout(function () { finishRecording(i); }, MAX_RECORD_MS + 2000);
     } else {
@@ -244,6 +288,7 @@
     if (prev >= 0 && slides[prev] && slides[prev].mode === 'record') finishRecording(prev);
     updateWindow();
     maybeGo(i);
+    armWatchdog(i);
     refreshFeedEnd();
   }
 
@@ -264,11 +309,17 @@
     var s = slides[i];
     if (d.gsns === 'ready') {
       s.ready = true;
-      if (i === activeIndex) maybeGo(i);
+      clearTimeout(s.watchdog);
+      s.el.classList.remove('broken');
+      s.el.querySelector('.load-error').classList.add('hidden');
+      if (i === activeIndex) { maybeGo(i); armWatchdog(i); }
       else if (s.el.querySelector('.spinner')) {
         // preloaded & frozen: hide spinner so swiping in feels instant
         s.el.querySelector('.spinner').classList.add('off');
       }
+    } else if (d.gsns === 'unavailable') {
+      // the server told us the game file is gone — no point waiting
+      markBroken(i);
     } else if (d.gsns === 'events' && s.session && !s.session.saved) {
       if (Array.isArray(d.events)) s.session.events = s.session.events.concat(d.events);
       if (typeof d.vt === 'number') s.session.lastVt = Math.max(s.session.lastVt, d.vt);
@@ -287,6 +338,7 @@
       // player swipe on (the iframe stops eating pointer events)
       if (s.mode === 'record' && !s.el.classList.contains('game-over')) {
         s.el.classList.add('game-over');
+        s.el.classList.remove('playing');
         s.el.querySelector('.swipe-hint').classList.remove('hidden');
         finishRecording(i);
       }
@@ -304,6 +356,47 @@
     slides[i].el.scrollIntoView({ behavior: 'smooth' });
   }
 
+  /* ---------- swipe assist (replay / game-over / broken slides) ----------
+     When the iframe is click-through the feed scrolls natively, but a swipe
+     shorter than half a screen snaps back. Apply the same forgiving gesture
+     rules as in-game swipes so every slide feels identical. Touch events keep
+     firing during native scrolling (pointer events get cancelled), so use
+     touchstart/touchend. */
+  var tsY = 0, tsX = 0, tsT = 0, tsSlide = -1;
+  feedEl.addEventListener('touchstart', function (e) {
+    tsY = e.touches[0].clientY; tsX = e.touches[0].clientX;
+    tsT = Date.now(); tsSlide = activeIndex;
+  }, { passive: true });
+  feedEl.addEventListener('touchend', function (e) {
+    if (tsSlide < 0 || !e.changedTouches.length) return;
+    var start = tsSlide; tsSlide = -1;
+    var dt = Date.now() - tsT;
+    var dy = e.changedTouches[0].clientY - tsY;
+    var dx = e.changedTouches[0].clientX - tsX;
+    var ay = Math.abs(dy);
+    var long = dt < 1400 && ay > Math.min(window.innerHeight * 0.22, 240);
+    var quick = dt < 500 && ay > 80 && ay / Math.max(dt, 1) > 0.6;
+    if ((long || quick) && ay > 1.7 * Math.abs(dx)) {
+      scrollToSlide(start + (dy < 0 ? 1 : -1));
+    }
+  }, { passive: true });
+
+  /* ---------- keyboard + button navigation (desktop) ---------- */
+  window.addEventListener('keydown', function (e) {
+    var t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+    if (!sheet.classList.contains('hidden')) return;
+    if (document.querySelector('.modal-backdrop:not(.hidden)')) return;
+    var k = e.key;
+    if (k === 'ArrowDown' || k === 'PageDown' || k === ' ' || k === 'j') {
+      e.preventDefault(); scrollToSlide(activeIndex + 1);
+    } else if (k === 'ArrowUp' || k === 'PageUp' || k === 'k') {
+      e.preventDefault(); scrollToSlide(activeIndex - 1);
+    }
+  });
+  document.getElementById('navUp').addEventListener('click', function () { scrollToSlide(activeIndex - 1); });
+  document.getElementById('navDown').addEventListener('click', function () { scrollToSlide(activeIndex + 1); });
+
   function findSlideByWindow(w) {
     for (var i = 0; i < slides.length; i++) {
       if (slides[i].iframe && slides[i].iframe.contentWindow === w) return i;
@@ -315,6 +408,7 @@
     var s = slides[i];
     if (!s || !s.session || s.session.saved) return;
     var sess = s.session;
+    s.el.classList.remove('playing');
     if (sess.capTimer) clearTimeout(sess.capTimer);
     // ask the harness for any buffered events, then post shortly after
     if (s.iframe && s.goSent) {
@@ -483,10 +577,12 @@
       fileInput.value = '';
       toast(L.uploaded);
       resetFeed();
-    }).catch(function () {
+    }).catch(function (err) {
       btn.disabled = false;
       btn.textContent = L.submit;
-      toast(L.uploadFailed);
+      // show the server's reason (e.g. "html too large") so failures are debuggable
+      var why = err && err.message && !/^\d+$/.test(err.message) ? ' (' + err.message + ')' : '';
+      toast(L.uploadFailed + why);
     });
   });
 

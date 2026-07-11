@@ -165,12 +165,26 @@
       var dt = realNow() - swT, dx = e.clientX - swX, dy = e.clientY - swY;
       swT = 0;
       var ay = Math.abs(dy);
-      // either a long stroke, or a short-but-fast flick, both mostly vertical
-      var long = dt < 700 && ay > Math.min(window.innerHeight * 0.22, 240);
-      var quick = dt < 500 && ay > 90 && ay / Math.max(dt, 1) > 0.65;
-      if ((long || quick) && ay > 1.8 * Math.abs(dx)) {
+      // either a long stroke (slow deliberate drags count too), or a
+      // short-but-fast flick, both mostly vertical
+      var long = dt < 1400 && ay > Math.min(window.innerHeight * 0.22, 240);
+      var quick = dt < 500 && ay > 80 && ay / Math.max(dt, 1) > 0.6;
+      if ((long || quick) && ay > 1.7 * Math.abs(dx)) {
         try { window.parent.postMessage({ gsns: 'swipe', dir: dy < 0 ? 'up' : 'down' }, '*'); } catch (err) { }
       }
+    }, { capture: true, passive: true });
+    // desktop: the iframe swallows wheel events, so relay scroll intent
+    var wheelAcc = 0, wheelT = 0, wheelNavT = 0;
+    window.addEventListener('wheel', function (e) {
+      var now = realNow();
+      if (now - wheelT > 400) wheelAcc = 0;
+      wheelT = now;
+      wheelAcc += e.deltaY;
+      if (now - wheelNavT < 700 || Math.abs(wheelAcc) < 140) return;
+      wheelNavT = now;
+      var dir = wheelAcc > 0 ? 'up' : 'down'; // scroll down = swipe up = next
+      wheelAcc = 0;
+      try { window.parent.postMessage({ gsns: 'swipe', dir: dir }, '*'); } catch (err) { }
     }, { capture: true, passive: true });
     realSetInterval(function () { flush(false); }, 1200);
     document.addEventListener('visibilitychange', function () {

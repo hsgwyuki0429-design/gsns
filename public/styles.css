@@ -49,6 +49,16 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 /* once the game announced game-over the run is saved — give the touch
    surface back to the feed so the player can swipe on */
 .slide.game-over .frame-wrap iframe { pointer-events: none; }
+/* a game that failed to load must not trap taps either */
+.slide.broken .frame-wrap iframe { pointer-events: none; }
+
+.load-error {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  z-index: 4; padding: 16px 22px; border-radius: 14px;
+  background: rgba(23,26,40,.92); border: 1px solid rgba(255,255,255,.14);
+  color: #c8cbe0; font-size: 14px; line-height: 1.8; text-align: center;
+  white-space: pre-line; cursor: pointer; max-width: 82vw;
+}
 
 .swipe-hint {
   position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 108px);
@@ -76,15 +86,18 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* badge */
+/* badge (never steals taps from the game underneath) */
 .badge {
   position: absolute; top: calc(env(safe-area-inset-top) + 58px); left: 12px; z-index: 5;
   padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
   backdrop-filter: blur(8px); max-width: 78vw;
+  pointer-events: none;
 }
-.badge.live { background: rgba(220, 38, 38, .85); animation: pulse 1.6s ease-in-out infinite; }
-.badge.replay { background: rgba(255,255,255,.16); }
+/* announce loudly, then fade out of the way of the game's own HUD */
+.badge.live { background: rgba(220, 38, 38, .85); animation: pulse 1.6s ease-in-out 3, badgeDim .5s ease 5s forwards; }
+.badge.replay { background: rgba(255,255,255,.16); animation: badgeDim .5s ease 5s forwards; }
 @keyframes pulse { 50% { opacity: .65; } }
+@keyframes badgeDim { to { opacity: .25; } }
 
 /* meta (bottom-left) */
 .meta {
@@ -114,6 +127,27 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .rail button:active .ico { transform: scale(1.2); }
 .rail svg { width: 24px; height: 24px; fill: #fff; }
 .rail button.liked svg { fill: #ec4899; }
+/* while the viewer is playing live, the game owns every pixel: fade the rail
+   out of the way so its buttons don't swallow taps meant for the game
+   (it comes back on game-over and on replays) */
+.slide.playing .rail { pointer-events: none; opacity: .35; transition: opacity .25s; }
+
+/* ---------- desktop prev/next buttons ---------- */
+.nav-btns { display: none; }
+@media (hover: hover) and (pointer: fine) {
+  .nav-btns {
+    position: fixed; right: 18px; top: 50%; transform: translateY(-50%);
+    z-index: 25; display: flex; flex-direction: column; gap: 12px;
+  }
+  .nav-btns button {
+    width: 44px; height: 44px; border-radius: 50%;
+    background: rgba(20,22,34,.6); backdrop-filter: blur(8px);
+    font-size: 18px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid rgba(255,255,255,.12);
+  }
+  .nav-btns button:hover { background: rgba(60,64,90,.75); }
+}
 
 .feed-end {
   position: fixed; bottom: 0; left: 0; right: 0; text-align: center;

@@ -37,6 +37,7 @@
     yourTurn: 'タップして操作！',
     replayNote: '倍速',
     swipeNext: '上にスワイプで次のゲームへ',
+    gameUnavailable: 'このゲームを読み込めませんでした\nタップで再試行 / スワイプで次へ',
     // en uses 'x' suffix, ja uses 倍速
   };
   var en = {
@@ -76,6 +77,7 @@
     yourTurn: 'Tap to play!',
     replayNote: 'x',
     swipeNext: 'Swipe up for the next game',
+    gameUnavailable: "This game couldn't be loaded\nTap to retry / swipe for the next one",
   };
   window.L = (navigator.language || '').toLowerCase().indexOf('ja') === 0 ? ja : en;
 })();

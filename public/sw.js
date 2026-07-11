@@ -1,5 +1,5 @@
 /* GSNS service worker: cache the app shell, pass everything dynamic through. */
-var CACHE = 'gsns-v2';
+var CACHE = 'gsns-v3';
 var SHELL = [
   '/',
   '/styles.css',
@@ -32,7 +32,30 @@ self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   // API and game pages are always fresh
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/game/')) return;
-  // shell: stale-while-revalidate
+  // the app shell itself is network-first so deploys reach users immediately
+  // (stale-while-revalidate used to serve one-version-old HTML/JS after every
+  // update, making new features look "missing"); cache is the offline fallback
+  if (e.request.mode === 'navigate' || url.pathname === '/' ||
+      url.pathname === '/app.js' || url.pathname === '/i18n.js' || url.pathname === '/styles.css') {
+    // no-cache: revalidate with the server (skip the 1h HTTP cache); build a
+    // fresh Request because init options on a navigate Request throw on older
+    // Safari/Chrome
+    var fresh = new Request(url.href, { cache: 'no-cache', credentials: 'same-origin' });
+    e.respondWith(
+      fetch(fresh).then(function (res) {
+        if (res.ok) {
+          var clone = res.clone();
+          caches.open(CACHE).then(function (c) { c.put(e.request, clone); });
+        }
+        return res;
+      }).catch(function () {
+        // offline: cached copy, falling back to the shell for deep links (/?g=1)
+        return caches.match(e.request).then(function (r) { return r || caches.match('/'); });
+      })
+    );
+    return;
+  }
+  // everything else: stale-while-revalidate
   e.respondWith(
     caches.match(e.request).then(function (cached) {
       var fetched = fetch(e.request).then(function (res) {

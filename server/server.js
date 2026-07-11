@@ -8,7 +8,9 @@ const { pool, ready, saveGameFile, getGameFile, storageMode } = require('./db');
 const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1); // Render/most PaaS sit behind one proxy
-app.use(express.json({ limit: '4mb' }));
+// a 2MB game HTML can exceed 4MB once JSON-escaped inside the upload body,
+// which used to reject valid uploads with an opaque failure
+app.use(express.json({ limit: '10mb' }));
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 const SAMPLES_DIR = path.join(__dirname, '..', 'samples');
@@ -238,7 +240,15 @@ app.get('/game/:id', h(async (req, res) => {
     try {
       html = await getGameFile(file);
     } catch (e) {
-      if (e.notFound || e.code === 'ENOENT') return res.status(404).send('not found');
+      if (e.notFound || e.code === 'ENOENT') {
+        // the DB row exists but the HTML file is gone (typically: uploads were
+        // stored on the local disk, which does not survive a redeploy). Tell
+        // the feed immediately instead of leaving the viewer on a spinner.
+        return res.status(404).type('html').send(
+          '<!DOCTYPE html><meta charset="utf-8"><body style="margin:0;background:#101220">' +
+          '<script>try{parent.postMessage({gsns:"unavailable"},"*")}catch(e){}</script>'
+        );
+      }
       throw e;
     }
     cacheGameHtml(file, html);
@@ -326,6 +336,11 @@ async function seedSamples() {
 const PORT = process.env.PORT || 3000;
 const server = app.listen(PORT, () =>
   console.log(`GSNS listening on :${PORT} (db: postgres, storage: ${storageMode})`));
+if (storageMode === 'local') {
+  console.warn('WARNING: SUPABASE_URL is not set — game HTML files are stored on the local disk ' +
+    'and will be LOST on redeploy/restart on ephemeral hosts like Render. ' +
+    'Set SUPABASE_URL and SUPABASE_SERVICE_KEY to persist them.');
+}
 process.on('SIGTERM', () => server.close(() => pool.end().then(() => process.exit(0))));
 ready
   .then(seedSamples)
