@@ -118,12 +118,14 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .feed-end {
   position: fixed; bottom: 0; left: 0; right: 0; text-align: center;
   padding: 12px; color: #9aa0b5; font-size: 13px; z-index: 10;
-  white-space: pre-line;
+  white-space: pre-line; pointer-events: none;
 }
-/* while the feed is empty the status is the whole screen — center it */
+/* while the feed is empty the status is the whole screen — center it
+   (and make it tappable: tap = retry now) */
 .feed-end.center {
   top: 50%; bottom: auto; transform: translateY(-50%);
   font-size: 15px; line-height: 1.9; padding: 0 36px;
+  pointer-events: auto;
 }
 
 /* ---------- modals ---------- */

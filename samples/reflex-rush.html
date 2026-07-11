@@ -42,7 +42,9 @@
   addEventListener('pointerdown',function(){
     var t=performance.now();
     advance(t);
-    if(phase==='wait'){
+    // t===phaseT means advance() started the round with THIS tap —
+    // don't punish it as an early tap; the round begins untouched
+    if(phase==='wait'&&t>phaseT){
       lastMs=PENALTY;lastEarly=true;times.push(PENALTY);
       phase='result';phaseT=t;
     }else if(phase==='go'){

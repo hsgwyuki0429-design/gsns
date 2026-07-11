@@ -244,7 +244,14 @@ app.get('/game/:id', h(async (req, res) => {
     cacheGameHtml(file, html);
   }
   const mode = req.query.mode === 'replay' ? 'replay' : 'record';
-  const seed = (parseInt(req.query.seed) || 1) | 0;
+  let seed = (parseInt(req.query.seed) || 1) | 0;
+  if (mode === 'replay') {
+    // the game must replay under the exact RNG seed the recording was made
+    // with — games consume Math.random() from load time, so it has to be
+    // baked into the page, not sent later with "go"
+    const rec = await pool.query('SELECT seed FROM recordings WHERE game_id = $1', [id]);
+    if (rec.rows[0]) seed = rec.rows[0].seed | 0;
+  }
   const speed = Math.min(Math.max(parseFloat(req.query.speed) || REPLAY_SPEED, 0.25), 8);
   const inject =
     `<script>window.__GSNS__=${JSON.stringify({ mode, seed, speed })};</script>` +
@@ -257,7 +264,9 @@ app.get('/game/:id', h(async (req, res) => {
   } else {
     html = inject + html;
   }
-  res.set('Cache-Control', 'private, max-age=120');
+  // replay pages embed the recording's seed, which changes when a recording
+  // is (re)created — cache them only briefly
+  res.set('Cache-Control', mode === 'replay' ? 'private, max-age=30' : 'private, max-age=120');
   res.type('html').send(html);
 }));
 
