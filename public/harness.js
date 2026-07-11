@@ -164,7 +164,11 @@
       if (!e.isTrusted || !swT) return;
       var dt = realNow() - swT, dx = e.clientX - swX, dy = e.clientY - swY;
       swT = 0;
-      if (dt < 600 && Math.abs(dy) > window.innerHeight * 0.3 && Math.abs(dy) > 2.2 * Math.abs(dx)) {
+      var ay = Math.abs(dy);
+      // either a long stroke, or a short-but-fast flick, both mostly vertical
+      var long = dt < 700 && ay > Math.min(window.innerHeight * 0.22, 240);
+      var quick = dt < 500 && ay > 90 && ay / Math.max(dt, 1) > 0.65;
+      if ((long || quick) && ay > 1.8 * Math.abs(dx)) {
         try { window.parent.postMessage({ gsns: 'swipe', dir: dy < 0 ? 'up' : 'down' }, '*'); } catch (err) { }
       }
     }, { capture: true, passive: true });

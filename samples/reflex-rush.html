@@ -16,6 +16,28 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
+  function crash(){sfx(280,0.45,'sawtooth',0.15,70);}
   var ROUNDS=5,PENALTY=1000;
   // all randomness consumed at load time → replay-safe RNG stream
   var DELAYS=[];
@@ -33,11 +55,12 @@
     if(phase==='result'&&t-phaseT>=(round===0?400:1100)){
       if(round>=ROUNDS){
         phase='done';
+        jingle();
         try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}
       }
       else startRound(t);
     }
-    if(phase==='wait'&&t>=goAt)phase='go';
+    if(phase==='wait'&&t>=goAt){phase='go';sfx(880,0.12,'sine',0.16);}
   }
   addEventListener('pointerdown',function(){
     var t=performance.now();
@@ -47,9 +70,11 @@
     if(phase==='wait'&&t>phaseT){
       lastMs=PENALTY;lastEarly=true;times.push(PENALTY);
       phase='result';phaseT=t;
+      sfx(170,0.3,'sawtooth',0.14,90);
     }else if(phase==='go'){
       lastMs=Math.max(0,Math.round(t-goAt));lastEarly=false;times.push(lastMs);
       phase='result';phaseT=t;
+      sfx(660,0.08,'sine',0.13,990);
     }
   });
   function draw(t){

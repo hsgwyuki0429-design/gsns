@@ -16,12 +16,35 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
+  function crash(){sfx(280,0.45,'sawtooth',0.15,70);}
   var COLORS=[['#e2394b','#ff8b96'],['#2f9e5f','#7dedae'],['#2f6fe0','#8db8ff'],['#e0a72f','#ffe08b']];
   var ON=420,GAP=170;
   // whole sequence is drawn from the seeded RNG at load time so the RNG
   // stream never depends on how far the player gets (keeps replays exact)
   var SEQ=[];
   for(var i=0;i<64;i++)SEQ.push((Math.random()*4)|0);
+  var TONE=[330,392,494,587],shLit=-1; // classic pad tones
   var level=0,phase='idle',phaseT=0,inputI=0,lit=-1,litT=0,over=false;
   function nextLevel(t){
     level++;phase='show';phaseT=t+600;inputI=0;lit=-1;
@@ -49,9 +72,13 @@
       if(Math.hypot(e.clientX-g.x,e.clientY-g.y)<=g.r){
         lit=i;litT=t;
         if(i===SEQ[inputI]){
+          sfx(TONE[i],0.25,'triangle',0.15);
           inputI++;
           if(inputI>=level)phase='level-up';
-        }else{over=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(err){}}
+        }else{
+          over=true;sfx(140,0.5,'sawtooth',0.16,80);
+          try{parent.postMessage({gsns:'game-over'},'*');}catch(err){}
+        }
         break;
       }
     }
@@ -61,6 +88,8 @@
     if(phase==='show'&&t>=phaseT){
       var i=Math.floor((t-phaseT)/(ON+GAP));
       lit=i<level&&(t-phaseT)-i*(ON+GAP)<ON?SEQ[i]:-1;
+      if(lit!==shLit&&lit>=0)sfx(TONE[lit],0.3,'triangle',0.15);
+      shLit=lit;
     }
     if(phase==='input'&&lit>=0&&t-litT>260)lit=-1;
     ctx.clearRect(0,0,W,H);

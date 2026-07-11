@@ -16,6 +16,28 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
+  function crash(){sfx(280,0.45,'sawtooth',0.15,70);}
   var DUR=30000,LIFE=2600,SPAWN=650;
   var bubbles=[],nextSpawn=400,score=0,over=false;
   var HUES=[330,265,200,160,45];
@@ -32,7 +54,8 @@
     for(var i=bubbles.length-1;i>=0;i--){
       var b=bubbles[i];
       if(!b.pop&&Math.hypot(e.clientX-b.x,e.clientY-b.y)<=b.r+14){
-        b.pop=performance.now();score++;break;
+        b.pop=performance.now();score++;
+        sfx(700,0.1,'sine',0.16,1200);break;
       }
     }
   });
@@ -66,7 +89,7 @@
     var left=Math.max(0,(DUR-t)/1000);
     ctx.textAlign='right';ctx.fillText(left.toFixed(1)+'s',W-16,86);
     if(t>=DUR){
-      if(!over){over=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
+      if(!over){over=true;jingle();try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
       ctx.textAlign='center';
       ctx.font='800 54px system-ui';
       ctx.fillStyle='#fff';ctx.fillText('SCORE',W/2,H/2-40);

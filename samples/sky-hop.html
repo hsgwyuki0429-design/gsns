@@ -16,6 +16,28 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
+  function crash(){sfx(280,0.45,'sawtooth',0.15,70);}
   var STEP=1000/120;
   // world units: y in [0,1] of height, x in seconds of scroll
   var by=0.45,vy=0,started=false,over=false,overSent=false,score=0;
@@ -24,6 +46,7 @@
   addEventListener('pointerdown',function(){
     if(over)return;
     started=true;vy=JUMP;flap=scroll;
+    sfx(430,0.09,'sine',0.1,780);
   });
   function tick(){
     if(!started)return;
@@ -41,7 +64,7 @@
       if(Math.abs(rel-bx)<halfW){
         if(Math.abs(by-gt.gy)>gt.gap*0.5-0.028)over=true;
       }
-      if(!gt.passed&&rel<bx-halfW){gt.passed=true;score++;}
+      if(!gt.passed&&rel<bx-halfW){gt.passed=true;score++;sfx(990,0.07,'sine',0.12);}
     }
     if(by>0.97||by<0.05)over=true;
   }
@@ -49,7 +72,7 @@
     if(prev<0)prev=t;
     acc+=t-prev;prev=t;
     while(acc>=STEP){if(!over)tick();acc-=STEP;}
-    if(over&&!overSent){overSent=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
+    if(over&&!overSent){overSent=true;crash();try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
     ctx.clearRect(0,0,W,H);
     var g=ctx.createLinearGradient(0,0,0,H);
     g.addColorStop(0,'#12245c');g.addColorStop(1,'#071022');

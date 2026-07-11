@@ -16,6 +16,28 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
+  function crash(){sfx(280,0.45,'sawtooth',0.15,70);}
   var EMOJI=['🍎','🍋','🍇','🌙','⭐','🐟','🎈','🍀'];
   var deck=[];
   for(var i=0;i<8;i++){deck.push(i);deck.push(i);}
@@ -51,14 +73,16 @@
       if(e.clientX>=g.x&&e.clientX<=g.x+g.w&&e.clientY>=g.y&&e.clientY<=g.y+g.h){
         if(!startT)startT=t;
         cd.state=1;cd.flipT=t;open.push(cd);
+        sfx(520,0.05,'square',0.07);
         if(open.length===2){
           moves++;
           if(open[0].v===open[1].v){
             open[0].state=2;open[1].state=2;open=[];
+            sfx(660,0.09,'sine',0.12,0,0.06);sfx(880,0.12,'sine',0.12,0,0.15);
             if(cards.every(function(c){return c.state===2;})){
-              doneT=t;try{parent.postMessage({gsns:'game-over'},'*');}catch(err){}
+              doneT=t;jingle();try{parent.postMessage({gsns:'game-over'},'*');}catch(err){}
             }
-          }else closeAt=t+700;
+          }else{closeAt=t+700;sfx(230,0.14,'square',0.08,170);}
         }
         break;
       }

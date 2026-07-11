@@ -16,6 +16,27 @@
   var cv=document.getElementById('c'),ctx=cv.getContext('2d'),W=0,H=0;
   function fit(){W=cv.width=innerWidth;H=cv.height=innerHeight;}
   addEventListener('resize',fit);fit();
+  /* --- tiny synth SFX (WebAudio, inline, no Math.random) --- */
+  var AC=null;
+  function ac(){
+    if(!AC)try{AC=new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
+    return AC;
+  }
+  addEventListener('pointerdown',function(){var c=ac();if(c&&c.state==='suspended')c.resume().catch(function(){});},true);
+  function sfx(f,d,type,v,f2,at){
+    var c=ac();if(!c)return;
+    function play(){
+      var t0=c.currentTime+(at||0),o=c.createOscillator(),g=c.createGain();
+      o.type=type||'sine';o.frequency.setValueAtTime(f,t0);
+      if(f2)o.frequency.exponentialRampToValueAtTime(f2,t0+d);
+      g.gain.setValueAtTime(v||0.12,t0);
+      g.gain.exponentialRampToValueAtTime(0.0008,t0+d);
+      o.connect(g);g.connect(c.destination);o.start(t0);o.stop(t0+d+0.03);
+    }
+    if(c.state==='running')play();
+    else c.resume().then(play).catch(function(){});
+  }
+  function jingle(){sfx(523,0.14,'sine',0.13);sfx(659,0.14,'sine',0.13,0,0.11);sfx(784,0.22,'sine',0.13,0,0.22);}
   var DUR=30000,COLS=3,ROWS=4,N=COLS*ROWS;
   var holes=[],score=0,over=false;
   for(var r=0;r<ROWS;r++)for(var q=0;q<COLS;q++)
@@ -61,7 +82,10 @@
       var g=geom(h),my=g.y-g.rad*0.5; // drawn mole head center (full pop)
       if(Math.hypot(e.clientX-g.x,e.clientY-g.y)<=g.rad+16||
          Math.hypot(e.clientX-g.x,e.clientY-my)<=g.rad+14){
-        h.hit=t;score+=h.gold?3:1;break;
+        h.hit=t;score+=h.gold?3:1;
+        if(h.gold)sfx(880,0.14,'triangle',0.18,1400);
+        else sfx(250,0.1,'triangle',0.18,130);
+        break;
       }
     }
   });
@@ -102,7 +126,7 @@
     var left=Math.max(0,(DUR-t)/1000);
     ctx.textAlign='right';ctx.fillText(left.toFixed(1)+'s',W-16,86);
     if(t>=DUR){
-      if(!over){over=true;try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
+      if(!over){over=true;jingle();try{parent.postMessage({gsns:'game-over'},'*');}catch(e){}}
       ctx.fillStyle='rgba(0,0,0,.45)';ctx.fillRect(0,0,W,H);
       ctx.textAlign='center';
       ctx.font='800 54px system-ui';
