@@ -51,6 +51,7 @@ if (!process.env.DATABASE_URL) {
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   max: 5, // Supabase free-tier pooler friendly
+  connectionTimeoutMillis: 10000, // fail fast while the db is paused/unreachable
   ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
 });
 

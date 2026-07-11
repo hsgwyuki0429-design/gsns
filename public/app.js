@@ -166,7 +166,16 @@
       s.recFetch = api('/api/games/' + s.game.id + '/recording').then(function (r) {
         s.recording = r;
         maybeGo(i);
-      }).catch(function () { /* recording vanished; treat as unplayable view */ });
+      }).catch(function (err) {
+        // recording vanished (e.g. sample refresh dropped it): this viewer
+        // becomes the new first player instead of staring at a spinner
+        if (err.status === 404 && s.iframe) {
+          s.game.hasRecording = false;
+          destroyFrame(i);
+          ensureFrame(i);
+          if (i === activeIndex) maybeGo(i);
+        }
+      });
     }
     if (mode === 'record') {
       s.session = { events: [], lastVt: 0, saved: false, posted: false };
@@ -181,6 +190,7 @@
     s.iframe = null;
     s.ready = false;
     s.goSent = false;
+    if (!s.recording) s.recFetch = null; // failed fetch: retry on next visit
     s.el.classList.remove('game-over');
     s.el.querySelector('.swipe-hint').classList.add('hidden');
     s.el.querySelector('.spinner').classList.remove('off');
@@ -314,16 +324,24 @@
     setTimeout(function () { postRecording(i); }, 350);
   }
 
+  // A run is worth keeping only if the player actually played: a single
+  // pointerdown right at the end is just the skip-flick (or an accidental
+  // tap) and must not lock the game into a do-nothing replay forever.
+  function meaningfulInput(events, lastVt) {
+    var inputs = events.filter(function (e) { return e.k === 'pointerdown' || e.k === 'keydown'; });
+    if (!inputs.length) return false;
+    if (inputs.length >= 2) return true;
+    var end = Math.max(lastVt || 0, events[events.length - 1].t);
+    return end - inputs[0].t > 1500; // one input then kept watching = minimal real play
+  }
+
   function postRecording(i) {
     var s = slides[i];
     var sess = s.session;
     if (!sess || sess.posted) return;
     var events = sess.events;
-    var hasInput = events.some(function (e) {
-      return e.k === 'pointerdown' || e.k === 'keydown';
-    });
     var duration = Math.max(sess.lastVt, events.length ? events[events.length - 1].t + 1200 : 0);
-    if (!hasInput || duration < 1500) { s.session = null; return; } // nothing worth saving
+    if (!meaningfulInput(events, sess.lastVt) || duration < 1500) { s.session = null; return; }
     sess.posted = true;
     var body = { seed: s.seed, duration: Math.min(duration, MAX_RECORD_MS), events: events };
     api('/api/games/' + s.game.id + '/recording', { method: 'POST', body: body })
@@ -341,9 +359,8 @@
     var s = slides[activeIndex];
     if (!s || s.mode !== 'record' || !s.session || s.session.posted) return;
     var events = s.session.events;
-    var hasInput = events.some(function (e) { return e.k === 'pointerdown' || e.k === 'keydown'; });
-    var duration = events.length ? events[events.length - 1].t + 1200 : 0;
-    if (!hasInput || duration < 1500) return;
+    var duration = Math.max(s.session.lastVt, events.length ? events[events.length - 1].t + 1200 : 0);
+    if (!meaningfulInput(events, s.session.lastVt) || duration < 1500) return;
     s.session.posted = true;
     var blob = new Blob([JSON.stringify({ seed: s.seed, duration: duration, events: events })], { type: 'application/json' });
     navigator.sendBeacon('/api/games/' + s.game.id + '/recording', blob);
